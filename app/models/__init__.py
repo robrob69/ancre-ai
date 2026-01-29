@@ -1,0 +1,28 @@
+"""SQLAlchemy models package."""
+
+from app.models.tenant import Tenant
+from app.models.assistant import Assistant
+from app.models.collection import Collection, assistant_collections
+from app.models.document import Document
+from app.models.chunk import Chunk
+from app.models.message import Message
+from app.models.usage import Usage
+from app.models.user import User
+from app.models.subscription import Subscription, SubscriptionPlan, SubscriptionStatus
+from app.models.daily_usage import DailyUsage
+
+__all__ = [
+    "Tenant",
+    "Assistant",
+    "Collection",
+    "assistant_collections",
+    "Document",
+    "Chunk",
+    "Message",
+    "Usage",
+    "User",
+    "Subscription",
+    "SubscriptionPlan",
+    "SubscriptionStatus",
+    "DailyUsage",
+]
