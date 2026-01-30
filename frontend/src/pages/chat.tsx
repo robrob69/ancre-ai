@@ -61,6 +61,10 @@ export function ChatPage() {
     enabled: !!id,
   })
 
+  // Track if we need to add a new conversation optimistically
+  const isNewConversationRef = useRef(false)
+  const firstMessageRef = useRef("")
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [])
@@ -78,6 +82,10 @@ export function ChatPage() {
       content: input.trim(),
       created_at: new Date().toISOString(),
     }
+
+    // Track if this is a new conversation
+    isNewConversationRef.current = !conversationId
+    firstMessageRef.current = userMessage.content
 
     setMessages((prev) => [...prev, userMessage])
     setInput("")
@@ -124,7 +132,7 @@ export function ChatPage() {
           )
         )
         setIsLoading(false)
-        // Refresh conversation list
+        // Refresh conversation list to get the real title from backend
         refetchConversations()
       },
       // onError
@@ -142,6 +150,14 @@ export function ChatPage() {
           )
         )
         setIsLoading(false)
+      },
+      // onConversationId - called immediately when conversation is created
+      (newConversationId) => {
+        if (isNewConversationRef.current) {
+          setConversationId(newConversationId)
+          // Immediately refetch to show the new conversation in the sidebar
+          refetchConversations()
+        }
       }
     )
   }

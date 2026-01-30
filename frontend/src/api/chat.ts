@@ -23,7 +23,8 @@ export const chatApi = {
       tokensInput: number
       tokensOutput: number
     }) => void,
-    onError: (error: string) => void
+    onError: (error: string) => void,
+    onConversationId?: (conversationId: string) => void
   ): (() => void) => {
     const tenantId = localStorage.getItem("tenant_id")
     const token = localStorage.getItem("access_token")
@@ -92,6 +93,9 @@ export const chatApi = {
               switch (eventType) {
                 case "conversation_id":
                   conversationId = eventData
+                  if (onConversationId) {
+                    onConversationId(conversationId)
+                  }
                   break
                 case "token":
                   onToken(eventData)

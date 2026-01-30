@@ -183,6 +183,20 @@ async def chat_stream(
         messages = list(reversed(result.scalars().all()))
         history = [{"role": m.role, "content": m.content} for m in messages]
 
+    # Save user message BEFORE streaming so conversation appears in list immediately
+    from app.database import async_session_maker
+    async with async_session_maker() as save_db:
+        user_message = Message(
+            assistant_id=assistant_id,
+            conversation_id=conversation_id,
+            role=MessageRole.USER.value,
+            content=request.message,
+            tokens_input=0,  # Will be updated after streaming
+        )
+        save_db.add(user_message)
+        await save_db.commit()
+        user_message_id = user_message.id
+
     async def event_generator():
         """Generate SSE events."""
         full_response = ""
@@ -190,7 +204,7 @@ async def chat_stream(
         tokens_input = 0
         tokens_output = 0
         
-        # Send conversation ID first
+        # Send conversation ID first (conversation now exists in DB)
         yield await format_sse("conversation_id", str(conversation_id))
         
         async for event in chat_service.chat_stream(
@@ -205,7 +219,9 @@ async def chat_stream(
                 yield await format_sse("token", event.data)
             elif event.event == "citations":
                 citations = event.data
-                yield await format_sse("citations", json.dumps(event.data))
+                # Convert Pydantic models to JSON-safe dicts (handles UUIDs, etc.)
+                citations_data = [c.model_dump(mode="json") if hasattr(c, 'model_dump') else c for c in event.data]
+                yield await format_sse("citations", json.dumps(citations_data))
             elif event.event == "done":
                 tokens_input = event.data.get("tokens_input", 0)
                 tokens_output = event.data.get("tokens_output", 0)
@@ -215,18 +231,16 @@ async def chat_stream(
             else:
                 yield await format_sse(event.event, json.dumps(event.data) if isinstance(event.data, dict) else str(event.data))
         
-        # Save messages after streaming completes
+        # Save assistant message after streaming completes
         # Note: Using a new session since the streaming may have closed the original
-        from app.database import async_session_maker
         async with async_session_maker() as save_db:
-            user_message = Message(
-                assistant_id=assistant_id,
-                conversation_id=conversation_id,
-                role=MessageRole.USER.value,
-                content=request.message,
-                tokens_input=tokens_input,
+            # Update user message with tokens_input
+            from sqlalchemy import update
+            await save_db.execute(
+                update(Message)
+                .where(Message.id == user_message_id)
+                .values(tokens_input=tokens_input)
             )
-            save_db.add(user_message)
             
             assistant_message = Message(
                 assistant_id=assistant_id,

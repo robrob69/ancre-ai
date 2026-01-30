@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = ""  # price_xxx for 15€/month
 
     # Free tier quotas
-    free_daily_chat_limit: int = 10
+    free_daily_chat_limit: int = 100
     free_max_files: int = 5
 
     # Dev mode: bypass Clerk auth
