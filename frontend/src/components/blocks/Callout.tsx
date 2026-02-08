@@ -1,6 +1,8 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react"
 import type { CalloutPayload } from "@/schemas/blocks"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 const toneConfig = {
   info: {
@@ -29,7 +31,9 @@ export function Callout({ tone, title, message }: CalloutPayload) {
     <Alert className={`my-2 ${config.className}`}>
       <Icon className="h-4 w-4" />
       {title && <AlertTitle>{title}</AlertTitle>}
-      <AlertDescription>{message}</AlertDescription>
+      <AlertDescription className="prose prose-sm max-w-none dark:prose-invert">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message}</ReactMarkdown>
+      </AlertDescription>
     </Alert>
   )
 }

@@ -15,49 +15,139 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Tool definition for Generative UI blocks
+# Tool definitions for Generative UI blocks — one per block type
 # ---------------------------------------------------------------------------
-RENDER_BLOCK_TOOL = {
+BLOCK_TOOL_KPI = {
     "type": "function",
     "function": {
-        "name": "renderBlock",
-        "description": (
-            "Affiche un bloc visuel structuré dans le chat. "
-            "Utilise cet outil quand l'information est mieux présentée sous forme structurée "
-            "(KPIs, tableau comparatif, étapes d'un plan, alerte/callout) plutôt qu'en texte brut. "
-            "Tu peux appeler cet outil plusieurs fois dans une même réponse."
-        ),
+        "name": "renderKpiCards",
+        "strict": True,
+        "description": "Affiche des cartes KPI. Utilise cet outil quand ta réponse contient des métriques, chiffres clés ou indicateurs.",
         "parameters": {
             "type": "object",
             "properties": {
-                "type": {
-                    "type": "string",
-                    "enum": ["kpi_cards", "steps", "table", "callout"],
-                    "description": "Type de bloc visuel",
-                },
-                "payload": {
-                    "type": "object",
-                    "description": (
-                        "Contenu du bloc. Schemas par type:\n"
-                        "- kpi_cards: { title?: string, items: [{ label: string, value: string, delta?: string }] }\n"
-                        "- steps: { title?: string, steps: [{ title: string, description?: string, status?: 'todo'|'doing'|'done' }] }\n"
-                        "- table: { title?: string, columns: string[], rows: string[][] }\n"
-                        "- callout: { tone: 'info'|'warning'|'success'|'danger', title?: string, message: string }"
-                    ),
+                "title": {"type": ["string", "null"], "description": "Titre optionnel du bloc KPI"},
+                "items": {
+                    "type": "array",
+                    "description": "Liste des KPIs à afficher",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string", "description": "Nom du KPI"},
+                            "value": {"type": "string", "description": "Valeur du KPI"},
+                            "delta": {"type": ["string", "null"], "description": "Variation (ex: +5%, -2%)"},
+                        },
+                        "required": ["label", "value", "delta"],
+                        "additionalProperties": False,
+                    },
                 },
             },
-            "required": ["type", "payload"],
+            "required": ["title", "items"],
+            "additionalProperties": False,
         },
     },
 }
 
+BLOCK_TOOL_TABLE = {
+    "type": "function",
+    "function": {
+        "name": "renderTable",
+        "strict": True,
+        "description": "Affiche un tableau comparatif. Utilise cet outil quand ta réponse compare des options ou présente des données tabulaires.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": ["string", "null"], "description": "Titre optionnel du tableau"},
+                "columns": {
+                    "type": "array",
+                    "description": "Noms des colonnes",
+                    "items": {"type": "string"},
+                },
+                "rows": {
+                    "type": "array",
+                    "description": "Lignes du tableau (chaque ligne = array de strings)",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+            },
+            "required": ["title", "columns", "rows"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+BLOCK_TOOL_STEPS = {
+    "type": "function",
+    "function": {
+        "name": "renderSteps",
+        "strict": True,
+        "description": "Affiche des étapes séquentielles. Utilise cet outil quand ta réponse décrit un plan, une procédure ou des étapes.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": ["string", "null"], "description": "Titre optionnel du bloc"},
+                "steps": {
+                    "type": "array",
+                    "description": "Liste des étapes",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "description": "Titre de l'étape"},
+                            "description": {"type": ["string", "null"], "description": "Description de l'étape"},
+                        },
+                        "required": ["title", "description"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["title", "steps"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+BLOCK_TOOL_CALLOUT = {
+    "type": "function",
+    "function": {
+        "name": "renderCallout",
+        "strict": True,
+        "description": "Affiche une alerte ou un callout. Utilise cet outil pour alerter, avertir ou mettre en avant un point important.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tone": {
+                    "type": "string",
+                    "enum": ["info", "warning", "success", "danger"],
+                    "description": "Ton du callout",
+                },
+                "title": {"type": ["string", "null"], "description": "Titre optionnel"},
+                "message": {"type": "string", "description": "Message du callout"},
+            },
+            "required": ["tone", "title", "message"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+BLOCK_TOOLS = [BLOCK_TOOL_KPI, BLOCK_TOOL_TABLE, BLOCK_TOOL_STEPS, BLOCK_TOOL_CALLOUT]
+
+# Map tool function name → block type for the frontend
+_TOOL_NAME_TO_BLOCK_TYPE = {
+    "renderKpiCards": "kpi_cards",
+    "renderTable": "table",
+    "renderSteps": "steps",
+    "renderCallout": "callout",
+}
+
 BLOCK_INSTRUCTIONS = """
 INSTRUCTIONS POUR LES BLOCS VISUELS :
-Tu disposes d'un outil `renderBlock` pour afficher des blocs structurés dans le chat.
-- Si ta réponse contient des KPIs, métriques ou chiffres comparatifs → utilise renderBlock type "kpi_cards"
-- Si ta réponse décrit un plan, une procédure ou des étapes séquentielles → utilise renderBlock type "steps"
-- Si ta réponse compare des options ou présente des données tabulaires → utilise renderBlock type "table"
-- Si tu dois alerter, avertir ou mettre en avant un point important → utilise renderBlock type "callout"
+Tu disposes de 4 outils pour afficher des blocs structurés dans le chat :
+- `renderKpiCards` → quand ta réponse contient des KPIs, métriques ou chiffres comparatifs
+- `renderSteps` → quand ta réponse décrit un plan, une procédure ou des étapes séquentielles
+- `renderTable` → quand ta réponse compare des options ou présente des données tabulaires
+- `renderCallout` → quand tu dois alerter, avertir ou mettre en avant un point important
 Garde le texte concis et complémentaire ; mets la structure dans les blocs.
 Ne pas inventer de données manquantes ; si une valeur n'est pas disponible, indique "N/A".
 Tu peux combiner texte et plusieurs blocs dans une même réponse.
@@ -121,34 +211,22 @@ Remember to cite your sources (document name and page number) when using informa
         return citations
 
     @staticmethod
-    def _extract_payload(args: dict) -> dict:
-        """Extract payload from tool call args.
-
-        The LLM sometimes puts payload fields at the top level instead of
-        nesting them inside ``payload``.  This helper normalises both cases.
-        """
-        payload = args.get("payload")
-        if payload and isinstance(payload, dict) and len(payload) > 0:
-            return payload
-        # Fallback: treat every key except "type" as payload content
-        return {k: v for k, v in args.items() if k != "type"}
-
-    @staticmethod
     def _parse_tool_calls_to_blocks(tool_calls: list) -> list[dict]:
         """Parse OpenAI tool_calls into block dicts."""
         blocks = []
         for tc in tool_calls:
-            if tc.function.name != "renderBlock":
+            block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc.function.name)
+            if block_type is None:
                 continue
             try:
-                args = json.loads(tc.function.arguments)
+                payload = json.loads(tc.function.arguments)
                 blocks.append({
                     "id": str(uuid4()),
-                    "type": args.get("type", "error"),
-                    "payload": ChatService._extract_payload(args),
+                    "type": block_type,
+                    "payload": payload,
                 })
             except (json.JSONDecodeError, KeyError) as e:
-                logger.warning("Failed to parse renderBlock args: %s", e)
+                logger.warning("Failed to parse %s args: %s", tc.function.name, e)
                 blocks.append({
                     "id": str(uuid4()),
                     "type": "error",
@@ -198,7 +276,7 @@ Remember to cite your sources (document name and page number) when using informa
             model=self.model,
             messages=messages,
             max_tokens=self.max_tokens,
-            tools=[RENDER_BLOCK_TOOL],
+            tools=BLOCK_TOOLS,
             parallel_tool_calls=True,
         )
 
@@ -271,7 +349,7 @@ Remember to cite your sources (document name and page number) when using informa
                 model=self.model,
                 messages=messages,
                 max_tokens=self.max_tokens,
-                tools=[RENDER_BLOCK_TOOL],
+                tools=BLOCK_TOOLS,
                 parallel_tool_calls=True,
                 stream=True,
                 stream_options={"include_usage": True},
@@ -302,22 +380,24 @@ Remember to cite your sources (document name and page number) when using informa
 
             # After stream ends: emit blocks from accumulated tool calls
             for tc_data in tool_calls_acc.values():
-                if tc_data["name"] == "renderBlock":
-                    try:
-                        args = json.loads(tc_data["arguments"])
-                        block = {
-                            "id": str(uuid4()),
-                            "type": args.get("type", "error"),
-                            "payload": self._extract_payload(args),
-                        }
-                        yield ChatStreamEvent(event="block", data=block)
-                    except (json.JSONDecodeError, KeyError) as e:
-                        logger.warning("Failed to parse renderBlock args: %s", e)
-                        yield ChatStreamEvent(event="block", data={
-                            "id": str(uuid4()),
-                            "type": "error",
-                            "payload": {"message": str(e), "raw": tc_data["arguments"][:200]},
-                        })
+                block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc_data["name"])
+                if block_type is None:
+                    continue
+                try:
+                    payload = json.loads(tc_data["arguments"])
+                    block = {
+                        "id": str(uuid4()),
+                        "type": block_type,
+                        "payload": payload,
+                    }
+                    yield ChatStreamEvent(event="block", data=block)
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning("Failed to parse %s args: %s", tc_data["name"], e)
+                    yield ChatStreamEvent(event="block", data={
+                        "id": str(uuid4()),
+                        "type": "error",
+                        "payload": {"message": str(e), "raw": tc_data["arguments"][:200]},
+                    })
 
             # Yield citations
             citations = self._extract_citations(chunks, full_response)

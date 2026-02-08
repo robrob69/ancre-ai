@@ -7,6 +7,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { ListChecks, Circle, Loader2, CheckCircle2 } from "lucide-react"
 import type { StepsPayload } from "@/schemas/blocks"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 const statusConfig = {
   todo: {
@@ -62,9 +64,9 @@ export function Steps({ title, steps }: StepsPayload) {
                     </Badge>
                   </div>
                   {step.description && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {step.description}
-                    </p>
+                    <div className="mt-1 text-xs text-muted-foreground prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.description}</ReactMarkdown>
+                    </div>
                   )}
                 </div>
               </div>
