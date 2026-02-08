@@ -52,7 +52,11 @@ class Message(Base):
     # Citations for assistant messages
     citations: Mapped[list | None] = mapped_column(JSONB)
     # Structure: [{"chunk_id": "...", "document_id": "...", "page": 1, "excerpt": "..."}]
-    
+
+    # Generative UI blocks (tool call results)
+    blocks: Mapped[list | None] = mapped_column(JSONB)
+    # Structure: [{"id": "...", "type": "kpi_cards", "payload": {...}}]
+
     # Token tracking
     tokens_input: Mapped[int | None] = mapped_column(Integer)
     tokens_output: Mapped[int | None] = mapped_column(Integer)

@@ -25,12 +25,21 @@ class ChatRequest(BaseModel):
     max_history_messages: int = 10
 
 
+class BlockData(BaseModel):
+    """A generative UI block produced by a tool call."""
+
+    id: str
+    type: str  # "kpi_cards" | "steps" | "table" | "callout" | "error"
+    payload: dict
+
+
 class ChatResponse(BaseModel):
     """Chat response schema (non-streaming)."""
 
     message: str
     conversation_id: UUID
     citations: list[Citation] = []
+    blocks: list[BlockData] = []
     tokens_input: int
     tokens_output: int
 
@@ -38,5 +47,5 @@ class ChatResponse(BaseModel):
 class ChatStreamEvent(BaseModel):
     """SSE event for streaming chat."""
 
-    event: str  # "start", "token", "citations", "done", "error"
+    event: str  # "start", "token", "block", "citations", "done", "error"
     data: str | list[Citation] | dict | None = None

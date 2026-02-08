@@ -86,14 +86,14 @@ async def chat(
         history = [{"role": m.role, "content": m.content} for m in messages]
     
     # Call chat service
-    response_text, citations, tokens_input, tokens_output = await chat_service.chat(
+    response_text, citations, blocks, tokens_input, tokens_output = await chat_service.chat(
         message=request.message,
         tenant_id=tenant_id,
         collection_ids=collection_ids,
         system_prompt=assistant.system_prompt,
         conversation_history=history,
     )
-    
+
     # Save user message
     user_message = Message(
         assistant_id=assistant_id,
@@ -103,7 +103,7 @@ async def chat(
         tokens_input=tokens_input,
     )
     db.add(user_message)
-    
+
     # Save assistant message
     assistant_message = Message(
         assistant_id=assistant_id,
@@ -111,20 +111,22 @@ async def chat(
         role=MessageRole.ASSISTANT.value,
         content=response_text,
         citations=[c.model_dump() for c in citations],
+        blocks=blocks or None,
         tokens_output=tokens_output,
     )
     db.add(assistant_message)
-    
+
     # Record usage (both quota tracking and usage tracking)
     await quota_service.record_chat_request(db, user.id)
     await usage_service.record_chat(db, tenant_id, tokens_input, tokens_output)
-    
+
     await db.commit()
-    
+
     return ChatResponse(
         message=response_text,
         conversation_id=conversation_id,
         citations=citations,
+        blocks=blocks,
         tokens_input=tokens_input,
         tokens_output=tokens_output,
     )
@@ -207,6 +209,7 @@ async def chat_stream(
         """Generate SSE events."""
         full_response = ""
         citations_for_db = []  # JSON-safe dicts for DB storage
+        blocks_for_db = []  # Generative UI blocks for DB storage
         tokens_input = 0
         tokens_output = 0
 
@@ -224,6 +227,9 @@ async def chat_stream(
                 if event.event == "token":
                     full_response += event.data
                     yield await format_sse("token", event.data)
+                elif event.event == "block":
+                    blocks_for_db.append(event.data)
+                    yield await format_sse("block", json.dumps(event.data))
                 elif event.event == "citations":
                     # Serialize to JSON-safe dicts (convert UUIDs to strings)
                     citations_for_db = [
@@ -247,7 +253,7 @@ async def chat_stream(
             yield await format_sse("error", str(e))
         finally:
             # Always save assistant message after streaming, even on error
-            if full_response:
+            if full_response or blocks_for_db:
                 try:
                     async with async_session_maker() as save_db:
                         from sqlalchemy import update
@@ -262,7 +268,8 @@ async def chat_stream(
                             conversation_id=conversation_id,
                             role=MessageRole.ASSISTANT.value,
                             content=full_response,
-                            citations=citations_for_db,
+                            citations=citations_for_db or None,
+                            blocks=blocks_for_db or None,
                             tokens_output=tokens_output,
                         )
                         save_db.add(assistant_message)
@@ -378,6 +385,7 @@ async def get_conversation(
             "role": m.role,
             "content": m.content,
             "citations": m.citations,
+            "blocks": m.blocks,
             "created_at": m.created_at.isoformat(),
         }
         for m in messages

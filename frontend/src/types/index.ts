@@ -99,11 +99,21 @@ export interface Citation {
   score: number
 }
 
+// Generative UI blocks
+export type BlockType = "kpi_cards" | "steps" | "table" | "callout" | "error"
+
+export interface Block {
+  id: string
+  type: BlockType
+  payload: unknown
+}
+
 export interface Message {
   id: string
   role: "user" | "assistant" | "system"
   content: string
   citations?: Citation[]
+  blocks?: Block[]
   created_at: string
 }
 

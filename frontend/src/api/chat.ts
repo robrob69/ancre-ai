@@ -1,5 +1,5 @@
 import apiClient from "./client"
-import type { ChatRequest, ChatResponse, Message } from "@/types"
+import type { Block, ChatRequest, ChatResponse, Message } from "@/types"
 
 export const chatApi = {
   send: async (
@@ -24,7 +24,8 @@ export const chatApi = {
       tokensOutput: number
     }) => void,
     onError: (error: string) => void,
-    onConversationId?: (conversationId: string) => void
+    onConversationId?: (conversationId: string) => void,
+    onBlock?: (block: Block) => void
   ): (() => void) => {
     const tenantId = localStorage.getItem("tenant_id")
     const token = localStorage.getItem("access_token")
@@ -106,6 +107,16 @@ export const chatApi = {
                   break
                 case "token":
                   onToken(eventData)
+                  break
+                case "block":
+                  if (onBlock) {
+                    try {
+                      const block: Block = JSON.parse(eventData)
+                      onBlock(block)
+                    } catch {
+                      // Ignore parse errors
+                    }
+                  }
                   break
                 case "citations":
                   try {

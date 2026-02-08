@@ -25,10 +25,11 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { assistantsApi } from "@/api/assistants"
 import { chatApi } from "@/api/chat"
-import type { Citation, Message } from "@/types"
+import type { Block, Citation, Message } from "@/types"
 import { cn } from "@/lib/utils"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { BlockRenderer } from "@/components/blocks/BlockRenderer"
 
 import {
   AssistantRuntimeProvider,
@@ -157,6 +158,15 @@ export function ChatPage() {
             conversationIdRef.current = newConversationId
             refetchConversations()
           }
+        },
+        (block: Block) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, blocks: [...(msg.blocks || []), block] }
+                : msg
+            )
+          )
         }
       )
     },
@@ -214,6 +224,7 @@ export function ChatPage() {
           role: msg.role as "user" | "assistant" | "system",
           content: msg.content,
           citations: msg.citations,
+          blocks: msg.blocks,
           created_at: msg.created_at,
         }))
       )
@@ -405,6 +416,15 @@ export function ChatPage() {
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       )}
                     </div>
+
+                    {/* Generative UI Blocks */}
+                    {message.blocks && message.blocks.length > 0 && (
+                      <div className="mt-3 space-y-3">
+                        {message.blocks.map((block) => (
+                          <BlockRenderer key={block.id} block={block} />
+                        ))}
+                      </div>
+                    )}
 
                     {/* Citations */}
                     {message.citations && message.citations.length > 0 && (
