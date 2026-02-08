@@ -78,15 +78,22 @@ export const chatApi = {
 
               const lines = message.split("\n")
               let eventType = ""
-              let eventData = ""
+              const dataLines: string[] = []
 
               for (const line of lines) {
                 if (line.startsWith("event:")) {
                   eventType = line.slice(6).trim()
                 } else if (line.startsWith("data:")) {
-                  eventData = line.slice(5).trim()
+                  // SSE spec: remove "data:" prefix, then strip exactly one
+                  // leading space (the SSE separator). Preserve any additional
+                  // whitespace that is part of the actual token data.
+                  const raw = line.slice(5)
+                  dataLines.push(raw.startsWith(" ") ? raw.slice(1) : raw)
                 }
               }
+
+              // SSE spec: multiple data: lines are joined with newlines
+              const eventData = dataLines.join("\n")
 
               if (!eventType) continue
 

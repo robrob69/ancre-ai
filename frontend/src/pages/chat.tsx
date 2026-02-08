@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import {
@@ -27,119 +27,36 @@ import { assistantsApi } from "@/api/assistants"
 import { chatApi } from "@/api/chat"
 import type { Citation, Message } from "@/types"
 import { cn } from "@/lib/utils"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
-  ThreadPrimitive,
   ComposerPrimitive,
-  MessagePrimitive,
-  useMessage,
 } from "@assistant-ui/react"
 import type { ThreadMessageLike, AppendMessage } from "@assistant-ui/react"
-import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown"
-import "@assistant-ui/react-markdown/styles/dot.css"
-
-// Wrapper to bridge MarkdownTextPrimitive (reads from context) with TextMessagePartComponent type
-const MarkdownText = () => (
-  <MarkdownTextPrimitive className="aui-md" />
-)
 
 interface LocalMessage extends Message {
   isStreaming?: boolean
 }
 
-// Custom AssistantMessage component with markdown + citations
-function AssistantMessageComponent() {
-  const message = useMessage()
-  const citations = (message?.metadata?.custom?.citations as Citation[]) ?? []
-  const messageId = message?.id ?? ""
-  const [showCitations, setShowCitations] = useState(false)
-
-  return (
-    <div className="flex gap-4">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-        <Bot className="h-4 w-4" />
-      </div>
-      <div className="flex-1 space-y-2">
-        <div className="prose prose-sm max-w-none dark:prose-invert">
-          <MessagePrimitive.Content
-            components={{
-              Text: MarkdownText,
-            }}
-          />
-        </div>
-
-        {/* Citations */}
-        {citations.length > 0 && (
-          <div className="mt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-auto p-1 text-xs text-muted-foreground"
-              onClick={() => setShowCitations(!showCitations)}
-            >
-              {showCitations ? (
-                <ChevronUp className="mr-1 h-3 w-3" />
-              ) : (
-                <ChevronDown className="mr-1 h-3 w-3" />
-              )}
-              {citations.length} source(s)
-            </Button>
-            {showCitations && (
-              <div className="mt-2 space-y-2">
-                {citations.map((citation: Citation, idx: number) => (
-                  <div
-                    key={`${messageId}-citation-${idx}`}
-                    className="rounded-md border bg-muted/50 p-3 text-sm"
-                  >
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <FileText className="h-3 w-3" />
-                      {citation.document_filename}
-                      {citation.page_number && (
-                        <span>- Page {citation.page_number}</span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs italic">
-                      "{citation.excerpt}"
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// Custom UserMessage component
-function UserMessageComponent() {
-  return (
-    <div className="flex gap-4">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-        <User className="h-4 w-4" />
-      </div>
-      <div className="flex-1 space-y-2">
-        <div className="prose prose-sm max-w-none dark:prose-invert">
-          <MessagePrimitive.Content />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ChatThread() {
+export function ChatPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const [messages, setMessages] = useState<LocalMessage[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [expandedCitations, setExpandedCitations] = useState<Set<string>>(
+    new Set()
+  )
 
+  const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortFnRef = useRef<(() => void) | null>(null)
   const isNewConversationRef = useRef(false)
+  const conversationIdRef = useRef(conversationId)
+  conversationIdRef.current = conversationId
 
   const { data: assistant, isLoading: isLoadingAssistant } = useQuery({
     queryKey: ["assistant", id],
@@ -153,8 +70,13 @@ function ChatThread() {
     enabled: !!id,
   })
 
-  const conversationIdRef = useRef(conversationId)
-  conversationIdRef.current = conversationId
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages, scrollToBottom])
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
@@ -191,7 +113,6 @@ function ChatThread() {
           message: userText,
           conversation_id: conversationIdRef.current || undefined,
         },
-        // onToken
         (token) => {
           setMessages((prev) =>
             prev.map((msg) =>
@@ -201,7 +122,6 @@ function ChatThread() {
             )
           )
         },
-        // onComplete
         (response) => {
           setConversationId(response.conversationId)
           conversationIdRef.current = response.conversationId
@@ -215,7 +135,6 @@ function ChatThread() {
           setIsRunning(false)
           refetchConversations()
         },
-        // onError
         (error) => {
           console.error("Chat error:", error)
           setMessages((prev) =>
@@ -232,7 +151,6 @@ function ChatThread() {
           )
           setIsRunning(false)
         },
-        // onConversationId
         (newConversationId) => {
           if (isNewConversationRef.current) {
             setConversationId(newConversationId)
@@ -264,11 +182,6 @@ function ChatThread() {
           ? { type: "running" as const }
           : { type: "complete" as const, reason: "stop" as const },
       }),
-      metadata: {
-        custom: {
-          citations: message.citations ?? [],
-        },
-      },
     }),
     []
   )
@@ -309,6 +222,18 @@ function ChatThread() {
     } catch (error) {
       console.error("Failed to load conversation:", error)
     }
+  }
+
+  const toggleCitations = (messageId: string) => {
+    setExpandedCitations((prev) => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
   }
 
   if (isLoadingAssistant) {
@@ -434,59 +359,124 @@ function ChatThread() {
             </Button>
           </div>
 
-          {/* Messages area with assistant-ui Thread */}
-          <ThreadPrimitive.Root className="flex flex-1 flex-col overflow-hidden">
-            <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-4">
-              <div className="mx-auto max-w-3xl space-y-6">
-                <ThreadPrimitive.Empty>
-                  <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <Bot className="h-12 w-12 text-muted-foreground" />
-                    <h3 className="mt-4 text-lg font-semibold">
-                      Commencer une conversation
-                    </h3>
-                    <p className="mt-2 max-w-sm text-muted-foreground">
-                      Posez votre première question à {assistant.name}.
-                    </p>
-                  </div>
-                </ThreadPrimitive.Empty>
+          {/* Messages */}
+          <ScrollArea className="flex-1 p-4">
+            <div className="mx-auto max-w-3xl space-y-6">
+              {messages.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <Bot className="h-12 w-12 text-muted-foreground" />
+                  <h3 className="mt-4 text-lg font-semibold">
+                    Commencer une conversation
+                  </h3>
+                  <p className="mt-2 max-w-sm text-muted-foreground">
+                    Posez votre première question à {assistant.name}.
+                  </p>
+                </div>
+              )}
 
-                <ThreadPrimitive.Messages
-                  components={{
-                    UserMessage: UserMessageComponent,
-                    AssistantMessage: AssistantMessageComponent,
-                  }}
-                />
-              </div>
-            </ThreadPrimitive.Viewport>
-
-            {/* Composer */}
-            <div className="border-t p-4">
-              <div className="mx-auto max-w-3xl">
-                <ComposerPrimitive.Root className="relative flex items-end rounded-md border bg-background">
-                  <ComposerPrimitive.Input
-                    placeholder="Écrivez votre message..."
-                    className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-3 pr-12 text-sm focus:outline-none focus:ring-0"
-                    autoFocus
-                  />
-                  <ComposerPrimitive.Send
-                    className="absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              {messages.map((message) => (
+                <div key={message.id} className="flex gap-4">
+                  <div
+                    className={cn(
+                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                      message.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
+                    )}
                   >
-                    <Send className="h-4 w-4" />
-                  </ComposerPrimitive.Send>
-                </ComposerPrimitive.Root>
-                <p className="mt-2 text-center text-xs text-muted-foreground">
-                  Appuyez sur Entrée pour envoyer, Maj+Entrée pour un saut de
-                  ligne
-                </p>
-              </div>
+                    {message.role === "user" ? (
+                      <User className="h-4 w-4" />
+                    ) : (
+                      <Bot className="h-4 w-4" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="prose prose-sm max-w-none break-words dark:prose-invert">
+                      {message.role === "assistant" ? (
+                        <>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {message.content}
+                          </ReactMarkdown>
+                          {message.isStreaming && (
+                            <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-primary" />
+                          )}
+                        </>
+                      ) : (
+                        <p className="whitespace-pre-wrap">{message.content}</p>
+                      )}
+                    </div>
+
+                    {/* Citations */}
+                    {message.citations && message.citations.length > 0 && (
+                      <div className="mt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto p-1 text-xs text-muted-foreground"
+                          onClick={() => toggleCitations(message.id)}
+                        >
+                          {expandedCitations.has(message.id) ? (
+                            <ChevronUp className="mr-1 h-3 w-3" />
+                          ) : (
+                            <ChevronDown className="mr-1 h-3 w-3" />
+                          )}
+                          {message.citations.length} source(s)
+                        </Button>
+                        {expandedCitations.has(message.id) && (
+                          <div className="mt-2 space-y-2">
+                            {message.citations.map(
+                              (citation: Citation, idx: number) => (
+                                <div
+                                  key={idx}
+                                  className="rounded-md border bg-muted/50 p-3 text-sm"
+                                >
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <FileText className="h-3 w-3" />
+                                    {citation.document_filename}
+                                    {citation.page_number && (
+                                      <span>
+                                        - Page {citation.page_number}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="mt-1 text-xs italic">
+                                    "{citation.excerpt}"
+                                  </p>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
-          </ThreadPrimitive.Root>
+          </ScrollArea>
+
+          {/* Composer - assistant-ui */}
+          <div className="border-t p-4">
+            <div className="mx-auto max-w-3xl">
+              <ComposerPrimitive.Root className="relative flex items-end rounded-md border bg-background">
+                <ComposerPrimitive.Input
+                  placeholder="Écrivez votre message..."
+                  className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-3 pr-12 text-sm focus:outline-none focus:ring-0"
+                  autoFocus
+                />
+                <ComposerPrimitive.Send className="absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                  <Send className="h-4 w-4" />
+                </ComposerPrimitive.Send>
+              </ComposerPrimitive.Root>
+              <p className="mt-2 text-center text-xs text-muted-foreground">
+                Appuyez sur Entrée pour envoyer, Maj+Entrée pour un saut de
+                ligne
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </AssistantRuntimeProvider>
   )
-}
-
-export function ChatPage() {
-  return <ChatThread />
 }

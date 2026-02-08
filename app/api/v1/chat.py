@@ -20,8 +20,14 @@ router = APIRouter()
 
 
 async def format_sse(event: str, data: str) -> str:
-    """Format SSE message."""
-    return f"event: {event}\ndata: {data}\n\n"
+    """Format SSE message.
+
+    Per the SSE spec, multi-line data must use separate 'data:' lines.
+    The client reassembles them by joining with newlines.
+    """
+    lines = data.split("\n")
+    data_lines = "\n".join(f"data: {line}" for line in lines)
+    return f"event: {event}\n{data_lines}\n\n"
 
 
 @router.post("/{assistant_id}", response_model=ChatResponse)
@@ -200,58 +206,70 @@ async def chat_stream(
     async def event_generator():
         """Generate SSE events."""
         full_response = ""
-        citations = []
+        citations_for_db = []  # JSON-safe dicts for DB storage
         tokens_input = 0
         tokens_output = 0
-        
-        # Send conversation ID first (conversation now exists in DB)
-        yield await format_sse("conversation_id", str(conversation_id))
-        
-        async for event in chat_service.chat_stream(
-            message=request.message,
-            tenant_id=tenant_id,
-            collection_ids=collection_ids,
-            system_prompt=assistant.system_prompt,
-            conversation_history=history,
-        ):
-            if event.event == "token":
-                full_response += event.data
-                yield await format_sse("token", event.data)
-            elif event.event == "citations":
-                citations = event.data
-                # Convert Pydantic models to JSON-safe dicts (handles UUIDs, etc.)
-                citations_data = [c.model_dump(mode="json") if hasattr(c, 'model_dump') else c for c in event.data]
-                yield await format_sse("citations", json.dumps(citations_data))
-            elif event.event == "done":
-                tokens_input = event.data.get("tokens_input", 0)
-                tokens_output = event.data.get("tokens_output", 0)
-                yield await format_sse("done", json.dumps(event.data))
-            elif event.event == "error":
-                yield await format_sse("error", event.data)
-            else:
-                yield await format_sse(event.event, json.dumps(event.data) if isinstance(event.data, dict) else str(event.data))
-        
-        # Save assistant message after streaming completes
-        # Note: Using a new session since the streaming may have closed the original
-        async with async_session_maker() as save_db:
-            # Update user message with tokens_input
-            from sqlalchemy import update
-            await save_db.execute(
-                update(Message)
-                .where(Message.id == user_message_id)
-                .values(tokens_input=tokens_input)
-            )
-            
-            assistant_message = Message(
-                assistant_id=assistant_id,
-                conversation_id=conversation_id,
-                role=MessageRole.ASSISTANT.value,
-                content=full_response,
-                citations=citations,
-                tokens_output=tokens_output,
-            )
-            save_db.add(assistant_message)
-            await save_db.commit()
+
+        try:
+            # Send conversation ID first (conversation now exists in DB)
+            yield await format_sse("conversation_id", str(conversation_id))
+
+            async for event in chat_service.chat_stream(
+                message=request.message,
+                tenant_id=tenant_id,
+                collection_ids=collection_ids,
+                system_prompt=assistant.system_prompt,
+                conversation_history=history,
+            ):
+                if event.event == "token":
+                    full_response += event.data
+                    yield await format_sse("token", event.data)
+                elif event.event == "citations":
+                    # Serialize to JSON-safe dicts (convert UUIDs to strings)
+                    citations_for_db = [
+                        c.model_dump(mode="json") if hasattr(c, 'model_dump')
+                        else {k: str(v) if isinstance(v, UUID) else v for k, v in c.items()} if isinstance(c, dict)
+                        else c
+                        for c in event.data
+                    ]
+                    yield await format_sse("citations", json.dumps(citations_for_db))
+                elif event.event == "done":
+                    tokens_input = event.data.get("tokens_input", 0)
+                    tokens_output = event.data.get("tokens_output", 0)
+                    yield await format_sse("done", json.dumps(event.data))
+                elif event.event == "error":
+                    yield await format_sse("error", event.data)
+                else:
+                    yield await format_sse(event.event, json.dumps(event.data) if isinstance(event.data, dict) else str(event.data))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Streaming error: {e}")
+            yield await format_sse("error", str(e))
+        finally:
+            # Always save assistant message after streaming, even on error
+            if full_response:
+                try:
+                    async with async_session_maker() as save_db:
+                        from sqlalchemy import update
+                        await save_db.execute(
+                            update(Message)
+                            .where(Message.id == user_message_id)
+                            .values(tokens_input=tokens_input)
+                        )
+
+                        assistant_message = Message(
+                            assistant_id=assistant_id,
+                            conversation_id=conversation_id,
+                            role=MessageRole.ASSISTANT.value,
+                            content=full_response,
+                            citations=citations_for_db,
+                            tokens_output=tokens_output,
+                        )
+                        save_db.add(assistant_message)
+                        await save_db.commit()
+                except Exception as save_err:
+                    import logging
+                    logging.getLogger(__name__).error(f"Failed to save assistant message: {save_err}")
     
     return StreamingResponse(
         event_generator(),
