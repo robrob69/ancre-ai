@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import {
-  Send,
   Bot,
   User,
   Loader2,
@@ -11,9 +10,9 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  Send,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -23,30 +22,124 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { assistantsApi } from "@/api/assistants"
 import { chatApi } from "@/api/chat"
 import type { Citation, Message } from "@/types"
 import { cn } from "@/lib/utils"
 
+import {
+  AssistantRuntimeProvider,
+  useExternalStoreRuntime,
+  ThreadPrimitive,
+  ComposerPrimitive,
+  MessagePrimitive,
+  useMessage,
+} from "@assistant-ui/react"
+import type { ThreadMessageLike, AppendMessage } from "@assistant-ui/react"
+import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown"
+import "@assistant-ui/react-markdown/styles/dot.css"
+
+// Wrapper to bridge MarkdownTextPrimitive (reads from context) with TextMessagePartComponent type
+const MarkdownText = () => (
+  <MarkdownTextPrimitive className="aui-md" />
+)
+
 interface LocalMessage extends Message {
   isStreaming?: boolean
 }
 
-export function ChatPage() {
+// Custom AssistantMessage component with markdown + citations
+function AssistantMessageComponent() {
+  const message = useMessage()
+  const citations = (message?.metadata?.custom?.citations as Citation[]) ?? []
+  const messageId = message?.id ?? ""
+  const [showCitations, setShowCitations] = useState(false)
+
+  return (
+    <div className="flex gap-4">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+        <Bot className="h-4 w-4" />
+      </div>
+      <div className="flex-1 space-y-2">
+        <div className="prose prose-sm max-w-none dark:prose-invert">
+          <MessagePrimitive.Content
+            components={{
+              Text: MarkdownText,
+            }}
+          />
+        </div>
+
+        {/* Citations */}
+        {citations.length > 0 && (
+          <div className="mt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto p-1 text-xs text-muted-foreground"
+              onClick={() => setShowCitations(!showCitations)}
+            >
+              {showCitations ? (
+                <ChevronUp className="mr-1 h-3 w-3" />
+              ) : (
+                <ChevronDown className="mr-1 h-3 w-3" />
+              )}
+              {citations.length} source(s)
+            </Button>
+            {showCitations && (
+              <div className="mt-2 space-y-2">
+                {citations.map((citation: Citation, idx: number) => (
+                  <div
+                    key={`${messageId}-citation-${idx}`}
+                    className="rounded-md border bg-muted/50 p-3 text-sm"
+                  >
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <FileText className="h-3 w-3" />
+                      {citation.document_filename}
+                      {citation.page_number && (
+                        <span>- Page {citation.page_number}</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs italic">
+                      "{citation.excerpt}"
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Custom UserMessage component
+function UserMessageComponent() {
+  return (
+    <div className="flex gap-4">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+        <User className="h-4 w-4" />
+      </div>
+      <div className="flex-1 space-y-2">
+        <div className="prose prose-sm max-w-none dark:prose-invert">
+          <MessagePrimitive.Content />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatThread() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const [messages, setMessages] = useState<LocalMessage[]>([])
-  const [input, setInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [expandedCitations, setExpandedCitations] = useState<Set<string>>(new Set())
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortFnRef = useRef<(() => void) | null>(null)
+  const isNewConversationRef = useRef(false)
 
   const { data: assistant, isLoading: isLoadingAssistant } = useQuery({
     queryKey: ["assistant", id],
@@ -54,124 +147,144 @@ export function ChatPage() {
     enabled: !!id,
   })
 
-  // Fetch conversation list
   const { data: conversations, refetch: refetchConversations } = useQuery({
     queryKey: ["conversations", id],
     queryFn: () => chatApi.listConversations(id!),
     enabled: !!id,
   })
 
-  // Track if we need to add a new conversation optimistically
-  const isNewConversationRef = useRef(false)
-  const firstMessageRef = useRef("")
+  const conversationIdRef = useRef(conversationId)
+  conversationIdRef.current = conversationId
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [])
+  const onNew = useCallback(
+    async (message: AppendMessage) => {
+      if (!id) return
 
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages, scrollToBottom])
+      const textPart = message.content.find((p) => p.type === "text")
+      if (!textPart || textPart.type !== "text") return
+      const userText = textPart.text
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading || !id) return
+      isNewConversationRef.current = !conversationIdRef.current
 
-    const userMessage: LocalMessage = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input.trim(),
-      created_at: new Date().toISOString(),
-    }
+      const userMsg: LocalMessage = {
+        id: Date.now().toString(),
+        role: "user",
+        content: userText,
+        created_at: new Date().toISOString(),
+      }
 
-    // Track if this is a new conversation
-    isNewConversationRef.current = !conversationId
-    firstMessageRef.current = userMessage.content
-
-    setMessages((prev) => [...prev, userMessage])
-    setInput("")
-    setIsLoading(true)
-
-    // Add placeholder for assistant response
-    const assistantMessageId = (Date.now() + 1).toString()
-    setMessages((prev) => [
-      ...prev,
-      {
+      const assistantMessageId = (Date.now() + 1).toString()
+      const assistantMsg: LocalMessage = {
         id: assistantMessageId,
         role: "assistant",
         content: "",
         isStreaming: true,
         created_at: new Date().toISOString(),
-      },
-    ])
-
-    // Use streaming
-    abortFnRef.current = chatApi.stream(
-      id,
-      {
-        message: userMessage.content,
-        conversation_id: conversationId || undefined,
-      },
-      // onToken
-      (token) => {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, content: msg.content + token }
-              : msg
-          )
-        )
-      },
-      // onComplete
-      (response) => {
-        setConversationId(response.conversationId)
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, isStreaming: false, citations: response.citations }
-              : msg
-          )
-        )
-        setIsLoading(false)
-        // Refresh conversation list to get the real title from backend
-        refetchConversations()
-      },
-      // onError
-      (error) => {
-        console.error("Chat error:", error)
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? {
-                  ...msg,
-                  content: "Désolé, une erreur s'est produite. Veuillez réessayer.",
-                  isStreaming: false,
-                }
-              : msg
-          )
-        )
-        setIsLoading(false)
-      },
-      // onConversationId - called immediately when conversation is created
-      (newConversationId) => {
-        if (isNewConversationRef.current) {
-          setConversationId(newConversationId)
-          // Immediately refetch to show the new conversation in the sidebar
-          refetchConversations()
-        }
       }
-    )
-  }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+      setMessages((prev) => [...prev, userMsg, assistantMsg])
+      setIsRunning(true)
+
+      abortFnRef.current = chatApi.stream(
+        id,
+        {
+          message: userText,
+          conversation_id: conversationIdRef.current || undefined,
+        },
+        // onToken
+        (token) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, content: msg.content + token }
+                : msg
+            )
+          )
+        },
+        // onComplete
+        (response) => {
+          setConversationId(response.conversationId)
+          conversationIdRef.current = response.conversationId
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, isStreaming: false, citations: response.citations }
+                : msg
+            )
+          )
+          setIsRunning(false)
+          refetchConversations()
+        },
+        // onError
+        (error) => {
+          console.error("Chat error:", error)
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? {
+                    ...msg,
+                    content:
+                      "Désolé, une erreur s'est produite. Veuillez réessayer.",
+                    isStreaming: false,
+                  }
+                : msg
+            )
+          )
+          setIsRunning(false)
+        },
+        // onConversationId
+        (newConversationId) => {
+          if (isNewConversationRef.current) {
+            setConversationId(newConversationId)
+            conversationIdRef.current = newConversationId
+            refetchConversations()
+          }
+        }
+      )
+    },
+    [id, refetchConversations]
+  )
+
+  const onCancel = useCallback(async () => {
+    if (abortFnRef.current) {
+      abortFnRef.current()
+      abortFnRef.current = null
     }
-  }
+    setIsRunning(false)
+  }, [])
+
+  const convertMessage = useCallback(
+    (message: LocalMessage): ThreadMessageLike => ({
+      role: message.role,
+      content: [{ type: "text", text: message.content }],
+      id: message.id,
+      createdAt: new Date(message.created_at),
+      ...(message.role === "assistant" && {
+        status: message.isStreaming
+          ? { type: "running" as const }
+          : { type: "complete" as const, reason: "stop" as const },
+      }),
+      metadata: {
+        custom: {
+          citations: message.citations ?? [],
+        },
+      },
+    }),
+    []
+  )
+
+  const runtime = useExternalStoreRuntime({
+    messages,
+    isRunning,
+    onNew,
+    onCancel,
+    convertMessage,
+  })
 
   const handleNewConversation = () => {
     setMessages([])
     setConversationId(null)
+    conversationIdRef.current = null
     if (abortFnRef.current) {
       abortFnRef.current()
     }
@@ -179,7 +292,7 @@ export function ChatPage() {
 
   const loadConversation = async (convId: string) => {
     if (!id) return
-    
+
     try {
       const history = await chatApi.getConversation(id, convId)
       setMessages(
@@ -192,21 +305,10 @@ export function ChatPage() {
         }))
       )
       setConversationId(convId)
+      conversationIdRef.current = convId
     } catch (error) {
       console.error("Failed to load conversation:", error)
     }
-  }
-
-  const toggleCitations = (messageId: string) => {
-    setExpandedCitations((prev) => {
-      const next = new Set(prev)
-      if (next.has(messageId)) {
-        next.delete(messageId)
-      } else {
-        next.add(messageId)
-      }
-      return next
-    })
   }
 
   if (isLoadingAssistant) {
@@ -239,213 +341,152 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)]">
-      {/* Sidebar */}
-      <div className="hidden w-64 flex-shrink-0 border-r bg-muted/30 md:block">
-        <div className="flex h-full flex-col">
-          <div className="p-4">
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={handleNewConversation}
-            >
+    <AssistantRuntimeProvider runtime={runtime}>
+      <div className="flex h-[calc(100vh-4rem)]">
+        {/* Sidebar */}
+        <div className="hidden w-64 flex-shrink-0 border-r bg-muted/30 md:block">
+          <div className="flex h-full flex-col">
+            <div className="p-4">
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={handleNewConversation}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Nouvelle conversation
+              </Button>
+            </div>
+            <Separator />
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  HISTORIQUE
+                </p>
+                {conversations && conversations.length > 0 ? (
+                  <div className="space-y-1">
+                    {conversations.map((conv) => (
+                      <button
+                        key={conv.id}
+                        onClick={() => loadConversation(conv.id)}
+                        className={cn(
+                          "w-full rounded-md p-2 text-left text-sm transition-colors hover:bg-muted",
+                          conversationId === conv.id && "bg-muted"
+                        )}
+                      >
+                        <p className="truncate font-medium">{conv.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(conv.last_message_at).toLocaleDateString()}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Aucune conversation
+                  </p>
+                )}
+              </div>
+            </ScrollArea>
+            <Separator />
+            <div className="p-4">
+              <p className="text-xs font-medium text-muted-foreground mb-2">
+                DOCUMENTS
+              </p>
+              {assistant.collection_ids.length > 0 ? (
+                <Badge variant="secondary">
+                  <FileText className="mr-1 h-3 w-3" />
+                  {assistant.collection_ids.length} collection(s)
+                </Badge>
+              ) : (
+                <p className="text-sm text-muted-foreground">Aucun document</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Main chat area */}
+        <div className="flex flex-1 flex-col">
+          {/* Chat header */}
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate("/app/assistants")}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+                  <Bot className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium">{assistant.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {assistant.model}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleNewConversation}>
               <Plus className="mr-2 h-4 w-4" />
               Nouvelle conversation
             </Button>
           </div>
-          <Separator />
-          <ScrollArea className="flex-1 p-4">
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">
-                HISTORIQUE
-              </p>
-              {conversations && conversations.length > 0 ? (
-                <div className="space-y-1">
-                  {conversations.map((conv) => (
-                    <button
-                      key={conv.id}
-                      onClick={() => loadConversation(conv.id)}
-                      className={cn(
-                        "w-full rounded-md p-2 text-left text-sm transition-colors hover:bg-muted",
-                        conversationId === conv.id && "bg-muted"
-                      )}
-                    >
-                      <p className="truncate font-medium">{conv.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(conv.last_message_at).toLocaleDateString()}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Aucune conversation
-                </p>
-              )}
-            </div>
-          </ScrollArea>
-          <Separator />
-          <div className="p-4">
-            <p className="text-xs font-medium text-muted-foreground mb-2">
-              DOCUMENTS
-            </p>
-            {assistant.collection_ids.length > 0 ? (
-              <Badge variant="secondary">
-                <FileText className="mr-1 h-3 w-3" />
-                {assistant.collection_ids.length} collection(s)
-              </Badge>
-            ) : (
-              <p className="text-sm text-muted-foreground">Aucun document</p>
-            )}
-          </div>
-        </div>
-      </div>
 
-      {/* Main chat area */}
-      <div className="flex flex-1 flex-col">
-        {/* Chat header */}
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate("/app/assistants")}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                <Bot className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <p className="font-medium">{assistant.name}</p>
-                <p className="text-xs text-muted-foreground">{assistant.model}</p>
-              </div>
-            </div>
-          </div>
-          <Button variant="ghost" size="sm" onClick={handleNewConversation}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvelle conversation
-          </Button>
-        </div>
-
-        {/* Messages */}
-        <ScrollArea className="flex-1 p-4">
-          <div className="mx-auto max-w-3xl space-y-6">
-            {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <Bot className="h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-4 text-lg font-semibold">
-                  Commencer une conversation
-                </h3>
-                <p className="mt-2 max-w-sm text-muted-foreground">
-                  Posez votre première question à {assistant.name}.
-                </p>
-              </div>
-            )}
-
-            {messages.map((message) => (
-              <div key={message.id} className="flex gap-4">
-                <div
-                  className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  )}
-                >
-                  {message.role === "user" ? (
-                    <User className="h-4 w-4" />
-                  ) : (
-                    <Bot className="h-4 w-4" />
-                  )}
-                </div>
-                <div className="flex-1 space-y-2">
-                  <div className="prose prose-sm max-w-none dark:prose-invert">
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-                    {message.isStreaming && (
-                      <span className="inline-block h-4 w-2 animate-pulse bg-primary" />
-                    )}
+          {/* Messages area with assistant-ui Thread */}
+          <ThreadPrimitive.Root className="flex flex-1 flex-col overflow-hidden">
+            <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-4">
+              <div className="mx-auto max-w-3xl space-y-6">
+                <ThreadPrimitive.Empty>
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Bot className="h-12 w-12 text-muted-foreground" />
+                    <h3 className="mt-4 text-lg font-semibold">
+                      Commencer une conversation
+                    </h3>
+                    <p className="mt-2 max-w-sm text-muted-foreground">
+                      Posez votre première question à {assistant.name}.
+                    </p>
                   </div>
+                </ThreadPrimitive.Empty>
 
-                  {/* Citations */}
-                  {message.citations && message.citations.length > 0 && (
-                    <div className="mt-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-auto p-1 text-xs text-muted-foreground"
-                        onClick={() => toggleCitations(message.id)}
-                      >
-                        {expandedCitations.has(message.id) ? (
-                          <ChevronUp className="mr-1 h-3 w-3" />
-                        ) : (
-                          <ChevronDown className="mr-1 h-3 w-3" />
-                        )}
-                        {message.citations.length} source(s)
-                      </Button>
-                      {expandedCitations.has(message.id) && (
-                        <div className="mt-2 space-y-2">
-                          {message.citations.map((citation: Citation, idx: number) => (
-                            <div
-                              key={idx}
-                              className="rounded-md border bg-muted/50 p-3 text-sm"
-                            >
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <FileText className="h-3 w-3" />
-                                {citation.document_filename}
-                                {citation.page_number && (
-                                  <span>- Page {citation.page_number}</span>
-                                )}
-                              </div>
-                              <p className="mt-1 text-xs italic">
-                                "{citation.excerpt}"
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <ThreadPrimitive.Messages
+                  components={{
+                    UserMessage: UserMessageComponent,
+                    AssistantMessage: AssistantMessageComponent,
+                  }}
+                />
               </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        </ScrollArea>
+            </ThreadPrimitive.Viewport>
 
-        {/* Input area */}
-        <div className="border-t p-4">
-          <div className="mx-auto max-w-3xl">
-            <div className="relative">
-              <Textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Écrivez votre message..."
-                className="min-h-[60px] resize-none pr-12"
-                disabled={isLoading}
-              />
-              <Button
-                size="icon"
-                className="absolute bottom-2 right-2"
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
+            {/* Composer */}
+            <div className="border-t p-4">
+              <div className="mx-auto max-w-3xl">
+                <ComposerPrimitive.Root className="relative flex items-end rounded-md border bg-background">
+                  <ComposerPrimitive.Input
+                    placeholder="Écrivez votre message..."
+                    className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-3 pr-12 text-sm focus:outline-none focus:ring-0"
+                    autoFocus
+                  />
+                  <ComposerPrimitive.Send
+                    className="absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    <Send className="h-4 w-4" />
+                  </ComposerPrimitive.Send>
+                </ComposerPrimitive.Root>
+                <p className="mt-2 text-center text-xs text-muted-foreground">
+                  Appuyez sur Entrée pour envoyer, Maj+Entrée pour un saut de
+                  ligne
+                </p>
+              </div>
             </div>
-            <p className="mt-2 text-center text-xs text-muted-foreground">
-              Appuyez sur Entrée pour envoyer, Maj+Entrée pour un saut de ligne
-            </p>
-          </div>
+          </ThreadPrimitive.Root>
         </div>
       </div>
-    </div>
+    </AssistantRuntimeProvider>
   )
+}
+
+export function ChatPage() {
+  return <ChatThread />
 }
