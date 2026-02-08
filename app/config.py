@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     # Dev mode: bypass Clerk auth
     dev_auth_bypass: bool = False
 
+    # Nango (OAuth connector management)
+    nango_url: str = "http://localhost:3003"
+    nango_secret_key: str = ""
+    nango_public_key: str = ""
+
+    # CopilotKit
+    copilotkit_runtime_url: str = "http://localhost:4000"
+
 
 @lru_cache
 def get_settings() -> Settings:

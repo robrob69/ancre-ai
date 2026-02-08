@@ -12,6 +12,9 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
     "@clerk/localizations": "^2.0.0",
+    "@copilotkit/react-core": "^1.51.3",
+    "@copilotkit/react-ui": "^1.51.3",
+    "@copilotkit/runtime-client-gql": "^1.51.3",
     "@hookform/resolvers": "^3.9.1",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.4",

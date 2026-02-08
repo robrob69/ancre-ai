@@ -3,6 +3,8 @@
 from fastapi import APIRouter
 
 from app.api.v1 import tenants, assistants, collections, documents, chat, usage, billing, webhooks
+from app.api.v1 import copilotkit
+from app.api.v1 import integrations
 
 api_router = APIRouter()
 
@@ -14,3 +16,5 @@ api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(usage.router, prefix="/usage", tags=["usage"])
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+api_router.include_router(copilotkit.router, prefix="/copilotkit", tags=["copilotkit"])
+api_router.include_router(integrations.router, prefix="/integrations", tags=["integrations"])

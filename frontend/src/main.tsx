@@ -4,6 +4,9 @@ import { BrowserRouter } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ClerkProvider } from "@clerk/clerk-react"
 import { frFR } from "@clerk/localizations"
+import { CopilotProvider } from "@/components/copilotkit/CopilotProvider"
+import { CopilotActions } from "@/components/copilotkit/CopilotActions"
+import { CopilotChatPopup } from "@/components/copilotkit/CopilotChatPopup"
 import App from "./App"
 import "./index.css"
 
@@ -22,9 +25,13 @@ const queryClient = new QueryClient({
 // Render with or without Clerk based on config
 const AppWithProviders = () => (
   <QueryClientProvider client={queryClient}>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <CopilotProvider>
+      <CopilotActions />
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+      <CopilotChatPopup />
+    </CopilotProvider>
   </QueryClientProvider>
 )
 

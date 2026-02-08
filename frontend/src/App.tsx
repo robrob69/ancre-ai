@@ -19,6 +19,7 @@ import { ChatPage } from "@/pages/chat"
 import { CollectionsPage } from "@/pages/collections"
 import { ProfilePage } from "@/pages/profile"
 import { BillingPage } from "@/pages/billing"
+import { IntegrationsPage } from "@/pages/integrations"
 
 function App() {
   return (
@@ -70,6 +71,7 @@ function App() {
           <Route path="/app/collections" element={<CollectionsPage />} />
           <Route path="/app/profile" element={<ProfilePage />} />
           <Route path="/app/billing" element={<BillingPage />} />
+          <Route path="/app/integrations" element={<IntegrationsPage />} />
         </Route>
       </Routes>
       <Toaster />

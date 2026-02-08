@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth, useUser, useClerk } from "@clerk/clerk-react"
-import { Anchor, LogOut, User, CreditCard, Settings, FolderOpen } from "lucide-react"
+import { Anchor, LogOut, User, CreditCard, Settings, FolderOpen, Plug } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -102,6 +102,10 @@ export function Header() {
                 <DropdownMenuItem onClick={() => navigate("/app/billing")}>
                   <CreditCard className="mr-2 h-4 w-4" />
                   <span>Facturation</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/app/integrations")}>
+                  <Plug className="mr-2 h-4 w-4" />
+                  <span>Intégrations</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout}>

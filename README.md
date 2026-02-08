@@ -25,6 +25,8 @@
 | **Auth** | Clerk |
 | **Billing** | Stripe |
 | **LLM/Embeddings** | OpenAI |
+| **Generative UI** | CopilotKit (runtime Node.js + React) |
+| **OAuth/Connectors** | Nango (self-hosted) |
 
 ## Structure du projet
 
@@ -41,9 +43,11 @@
 │       ├── api/           # Clients API
 │       ├── components/    # Composants UI
 │       └── pages/         # Pages de l'application
+├── copilot-runtime/       # CopilotKit Node.js runtime
 ├── alembic/               # Migrations database
 ├── tests/                 # Tests
-└── docs/                  # Documentation API
+└── docs/                  # Documentation
+    └── integrations/      # CopilotKit & Nango docs
 ```
 
 ## Prérequis
@@ -88,16 +92,21 @@ make worker
 
 # Terminal 3 — Frontend
 cd frontend && npm run dev
+
+# Terminal 4 — CopilotKit Runtime (optionnel, pour Generative UI)
+cd copilot-runtime && npm run dev
 ```
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:5173 |
+| Frontend | http://localhost:3000 |
 | API | http://localhost:8000 |
 | Swagger | http://localhost:8000/docs |
 | ReDoc | http://localhost:8000/redoc |
 | MinIO Console | http://localhost:9001 |
 | Qdrant Dashboard | http://localhost:6333/dashboard |
+| CopilotKit Runtime | http://localhost:4000 |
+| Nango | http://localhost:3003 |
 
 ## API Endpoints
 
@@ -145,6 +154,19 @@ cd frontend && npm run dev
 | `POST` | `/api/v1/billing/checkout` | Créer une session Stripe |
 | `POST` | `/api/v1/billing/portal` | Portail client Stripe |
 
+### Intégrations (Nango)
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `POST` | `/api/v1/integrations/nango/connect/{provider}` | Initier une connexion OAuth |
+| `GET` | `/api/v1/integrations/nango/callback` | Callback OAuth |
+| `GET` | `/api/v1/integrations/nango/connections` | Lister les connexions du tenant |
+| `DELETE` | `/api/v1/integrations/nango/connections/{provider}` | Supprimer une connexion |
+
+### CopilotKit
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `POST` | `/api/v1/copilotkit/actions/kpi` | Action KPI (données structurées) |
+
 ## Formats de documents supportés
 
 | Format | Extensions |
@@ -171,6 +193,9 @@ Les variables d'environnement principales :
 | `CLERK_SECRET_KEY` | Clé secrète Clerk |
 | `STRIPE_SECRET_KEY` | Clé secrète Stripe |
 | `DEV_AUTH_BYPASS` | Bypass auth en dev (défaut: `true`) |
+| `NANGO_URL` | URL du serveur Nango (défaut: `http://localhost:3003`) |
+| `NANGO_SECRET_KEY` | Clé secrète Nango |
+| `COPILOTKIT_RUNTIME_URL` | URL du runtime CopilotKit (défaut: `http://localhost:4000`) |
 
 Voir `.env.example` pour la liste complète.
 
@@ -180,19 +205,25 @@ Voir `.env.example` pour la liste complète.
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │   Frontend   │────▶│   FastAPI    │────▶│  PostgreSQL  │
 │  React/Vite  │     │    + Arq     │     │              │
-└──────────────┘     └──────┬───────┘     └──────────────┘
-                            │
-           ┌────────────────┼────────────────┐
-           ▼                ▼                ▼
-     ┌──────────┐     ┌──────────┐     ┌──────────┐
-     │  Redis   │     │  Qdrant  │     │  MinIO   │
-     │  (queue) │     │ (vectors)│     │   (S3)   │
-     └────┬─────┘     └──────────┘     └──────────┘
-          │
-          ▼
-     ┌──────────┐
-     │  Worker  │──▶ Parse → Chunk → Embed → Index
-     └──────────┘
+│  + CopilotKit│     └──────┬───────┘     └──────────────┘
+└──────┬───────┘            │
+       │        ┌───────────┼────────────────┐
+       │        ▼           ▼                ▼
+       │  ┌──────────┐┌──────────┐     ┌──────────┐
+       │  │  Redis   ││  Qdrant  │     │  MinIO   │
+       │  │  (queue) ││ (vectors)│     │   (S3)   │
+       │  └────┬─────┘└──────────┘     └──────────┘
+       │       │
+       │       ▼
+       │  ┌──────────┐
+       │  │  Worker  │──▶ Parse → Chunk → Embed → Index
+       │  └──────────┘
+       │
+       │  ┌──────────────┐     ┌──────────────┐
+       └─▶│  CopilotKit  │     │    Nango     │
+          │  Runtime     │     │  (OAuth)     │
+          │  (Node :4000)│     │  (:3003)     │
+          └──────────────┘     └──────────────┘
 ```
 
 ## Commandes Make
