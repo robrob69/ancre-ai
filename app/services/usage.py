@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tenant import Tenant
@@ -25,21 +26,39 @@ class UsageService:
         tenant_id: UUID,
         period: date | None = None,
     ) -> Usage:
-        """Get or create usage record for tenant and period."""
+        """Get or create usage record for tenant and period.
+
+        Uses INSERT ... ON CONFLICT DO NOTHING to handle concurrent requests
+        that try to create the same (tenant_id, period) record simultaneously.
+        """
         period = period or self.get_current_period()
-        
+
         result = await db.execute(
             select(Usage)
             .where(Usage.tenant_id == tenant_id)
             .where(Usage.period == period)
         )
         usage = result.scalar_one_or_none()
-        
+
         if not usage:
-            usage = Usage(tenant_id=tenant_id, period=period)
-            db.add(usage)
-            await db.flush()
-        
+            stmt = (
+                pg_insert(Usage)
+                .values(tenant_id=tenant_id, period=period)
+                .on_conflict_do_nothing(constraint="uq_usage_tenant_period")
+                .returning(Usage)
+            )
+            result = await db.execute(stmt)
+            usage = result.scalar_one_or_none()
+
+            if not usage:
+                # Another transaction won the race — just SELECT it
+                result = await db.execute(
+                    select(Usage)
+                    .where(Usage.tenant_id == tenant_id)
+                    .where(Usage.period == period)
+                )
+                usage = result.scalar_one()
+
         return usage
 
     async def get_usage_summary(

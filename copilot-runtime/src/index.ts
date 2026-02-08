@@ -22,35 +22,31 @@ const app = express();
 const PORT = parseInt(process.env.COPILOT_RUNTIME_PORT || "4000", 10);
 
 app.use(cors());
-app.use(express.json());
 
 // Health check
 app.get("/health", (_req, res) => {
   res.json({ status: "healthy", service: "copilot-runtime" });
 });
 
-// CopilotKit runtime endpoint
-app.use("/copilotkit", (req, res, next) => {
-  const runtime = new CopilotRuntime({
-    // Remote actions can point back to our FastAPI backend
-    // This is where we'd add remote endpoints for backend-driven actions
-    remoteActions: [
-      {
-        url: process.env.BACKEND_ACTIONS_URL || "http://localhost:8000/api/v1/copilotkit/actions",
-      },
-    ],
-  });
-
-  const handler = copilotRuntimeNodeHttpEndpoint({
-    endpoint: "/copilotkit",
-    runtime,
-    serviceAdapter: new OpenAIAdapter({
-      model: process.env.COPILOT_LLM_MODEL || "gpt-4o-mini",
-    }),
-  });
-
-  return handler(req, res, next);
+// CopilotKit runtime - create once at startup
+const runtime = new CopilotRuntime({
+  remoteActions: [
+    {
+      url: process.env.BACKEND_ACTIONS_URL || "http://localhost:8000/api/v1/copilotkit/actions",
+    },
+  ],
 });
+
+const copilotHandler = copilotRuntimeNodeHttpEndpoint({
+  endpoint: "/copilotkit",
+  runtime,
+  serviceAdapter: new OpenAIAdapter({
+    model: process.env.COPILOT_LLM_MODEL || "gpt-4o-mini",
+  }),
+});
+
+// Mount at root so the handler sees the full /copilotkit path
+app.use(copilotHandler);
 
 app.listen(PORT, () => {
   console.log(`🤖 CopilotKit Runtime running on http://localhost:${PORT}`);

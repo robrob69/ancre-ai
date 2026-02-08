@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from qdrant_client import AsyncQdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import (
     Distance,
     FieldCondition,
@@ -60,10 +61,11 @@ class VectorStore:
     async def upsert_chunks(
         self,
         chunks: list[dict[str, Any]],
+        batch_size: int = 200,
     ) -> None:
         """
-        Upsert chunks into the vector store.
-        
+        Upsert chunks into the vector store in batches.
+
         Each chunk should have:
         - id: str (UUID)
         - vector: list[float]
@@ -72,47 +74,59 @@ class VectorStore:
         if not chunks:
             return
 
-        points = [
-            PointStruct(
-                id=chunk["id"],
-                vector=chunk["vector"],
-                payload=chunk["payload"],
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            points = [
+                PointStruct(
+                    id=chunk["id"],
+                    vector=chunk["vector"],
+                    payload=chunk["payload"],
+                )
+                for chunk in batch
+            ]
+
+            await self.client.upsert(
+                collection_name=self.collection_name,
+                points=points,
             )
-            for chunk in chunks
-        ]
-        
-        await self.client.upsert(
-            collection_name=self.collection_name,
-            points=points,
-        )
 
     async def delete_by_document(self, document_id: UUID) -> None:
         """Delete all chunks for a document."""
-        await self.client.delete(
-            collection_name=self.collection_name,
-            points_selector=Filter(
-                must=[
-                    FieldCondition(
-                        key="document_id",
-                        match=MatchValue(value=str(document_id)),
-                    )
-                ]
-            ),
-        )
+        try:
+            await self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="document_id",
+                            match=MatchValue(value=str(document_id)),
+                        )
+                    ]
+                ),
+            )
+        except UnexpectedResponse as e:
+            if e.status_code == 404:
+                return  # Collection doesn't exist yet — nothing to delete
+            raise
 
     async def delete_by_collection(self, collection_id: UUID) -> None:
         """Delete all chunks for a collection."""
-        await self.client.delete(
-            collection_name=self.collection_name,
-            points_selector=Filter(
-                must=[
-                    FieldCondition(
-                        key="collection_id",
-                        match=MatchValue(value=str(collection_id)),
-                    )
-                ]
-            ),
-        )
+        try:
+            await self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="collection_id",
+                            match=MatchValue(value=str(collection_id)),
+                        )
+                    ]
+                ),
+            )
+        except UnexpectedResponse as e:
+            if e.status_code == 404:
+                return  # Collection doesn't exist yet — nothing to delete
+            raise
 
     async def search(
         self,
