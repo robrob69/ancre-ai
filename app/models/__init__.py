@@ -10,6 +10,7 @@ from app.models.usage import Usage
 from app.models.user import User
 from app.models.subscription import Subscription, SubscriptionPlan, SubscriptionStatus
 from app.models.daily_usage import DailyUsage
+from app.integrations.nango.models import NangoConnection, assistant_integrations
 
 __all__ = [
     "Tenant",
@@ -25,4 +26,6 @@ __all__ = [
     "SubscriptionPlan",
     "SubscriptionStatus",
     "DailyUsage",
+    "NangoConnection",
+    "assistant_integrations",
 ]

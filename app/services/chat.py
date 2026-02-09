@@ -1,4 +1,4 @@
-"""Chat service with RAG, streaming, and Generative UI blocks."""
+"""Chat service with RAG, streaming, Generative UI blocks, and integration tools."""
 
 import json
 import logging
@@ -10,9 +10,14 @@ from openai import AsyncOpenAI
 from app.config import get_settings
 from app.schemas.chat import ChatStreamEvent, Citation
 from app.services.retrieval import RetrievalService, RetrievedChunk
+from app.integrations.nango.tools.registry import get_tools_for_provider, find_provider_for_tool
+from app.integrations.nango.tools.executor import execute_integration_tool
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# Maximum tool-calling iterations to prevent infinite loops
+MAX_TOOL_ITERATIONS = 5
 
 # ---------------------------------------------------------------------------
 # Tool definitions for Generative UI blocks — one per block type
@@ -154,6 +159,26 @@ Tu peux combiner texte et plusieurs blocs dans une même réponse.
 """
 
 
+def _build_integration_instructions(integrations: list[dict]) -> str:
+    """Build system prompt instructions for available integration tools."""
+    if not integrations:
+        return ""
+
+    lines = ["\nOUTILS EXTERNES DISPONIBLES :"]
+    lines.append("Tu as accès aux outils suivants pour interagir avec des systèmes externes.")
+    lines.append("Utilise-les quand l'utilisateur demande des informations ou actions liées à ces systèmes.")
+    lines.append("Les résultats sont renvoyés en JSON ; résume-les de façon lisible pour l'utilisateur.\n")
+
+    for integration in integrations:
+        provider = integration["provider"]
+        tools = get_tools_for_provider(provider)
+        for tool in tools:
+            fn = tool["function"]
+            lines.append(f"- `{fn['name']}` : {fn['description']}")
+
+    return "\n".join(lines) + "\n"
+
+
 class ChatService:
     """Service for RAG-powered chat with streaming."""
 
@@ -167,8 +192,9 @@ class ChatService:
         self,
         custom_prompt: str | None,
         context: str,
+        integrations: list[dict] | None = None,
     ) -> str:
-        """Build system prompt with context."""
+        """Build system prompt with context and integration instructions."""
         base_prompt = custom_prompt or (
             "You are a helpful assistant that answers questions based on the provided context. "
             "Always cite your sources by mentioning the document name and page number when available. "
@@ -187,7 +213,23 @@ Remember to cite your sources (document name and page number) when using informa
         else:
             prompt = base_prompt
 
-        return prompt + BLOCK_INSTRUCTIONS
+        prompt += BLOCK_INSTRUCTIONS
+        prompt += _build_integration_instructions(integrations or [])
+
+        return prompt
+
+    def _build_tools_list(self, integrations: list[dict] | None = None) -> list[dict]:
+        """Build the full tools list: block tools + integration tools."""
+        tools = list(BLOCK_TOOLS)
+        if integrations:
+            for integration in integrations:
+                provider = integration["provider"]
+                tools.extend(get_tools_for_provider(provider))
+        return tools
+
+    def _is_block_tool(self, tool_name: str) -> bool:
+        """Check if a tool name is a block (UI) tool vs an integration tool."""
+        return tool_name in _TOOL_NAME_TO_BLOCK_TYPE
 
     def _extract_citations(
         self,
@@ -212,7 +254,7 @@ Remember to cite your sources (document name and page number) when using informa
 
     @staticmethod
     def _parse_tool_calls_to_blocks(tool_calls: list) -> list[dict]:
-        """Parse OpenAI tool_calls into block dicts."""
+        """Parse OpenAI tool_calls into block dicts (only for block/UI tools)."""
         blocks = []
         for tc in tool_calls:
             block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc.function.name)
@@ -241,60 +283,141 @@ Remember to cite your sources (document name and page number) when using informa
         collection_ids: list[UUID],
         system_prompt: str | None = None,
         conversation_history: list[dict] | None = None,
+        integrations: list[dict] | None = None,
     ) -> tuple[str, list[Citation], list[dict], int, int]:
         """
-        Non-streaming chat.
+        Non-streaming chat with tool-calling loop.
 
         Returns:
             Tuple of (response, citations, blocks, tokens_input, tokens_output)
         """
         # Retrieve relevant chunks
-        chunks = await self.retrieval.retrieve(
-            query=message,
-            tenant_id=tenant_id,
-            collection_ids=collection_ids,
-        )
+        chunks = []
+        if collection_ids:
+            chunks = await self.retrieval.retrieve(
+                query=message,
+                tenant_id=tenant_id,
+                collection_ids=collection_ids,
+            )
 
         # Build context
-        context = self.retrieval.build_context(chunks)
+        context = self.retrieval.build_context(chunks) if chunks else ""
 
         # Build messages
         messages = []
         messages.append({
             "role": "system",
-            "content": self._build_system_prompt(system_prompt, context),
+            "content": self._build_system_prompt(system_prompt, context, integrations),
         })
 
-        # Add conversation history
         if conversation_history:
             messages.extend(conversation_history)
 
         messages.append({"role": "user", "content": message})
 
-        # Call LLM with tools
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_tokens=self.max_tokens,
-            tools=BLOCK_TOOLS,
-            parallel_tool_calls=True,
-        )
+        all_tools = self._build_tools_list(integrations)
+        total_input = 0
+        total_output = 0
+        all_blocks = []
 
-        response_text = response.choices[0].message.content or ""
-        tokens_input = response.usage.prompt_tokens if response.usage else 0
-        tokens_output = response.usage.completion_tokens if response.usage else 0
-
-        # Extract blocks from tool calls
-        blocks = []
-        if response.choices[0].message.tool_calls:
-            blocks = self._parse_tool_calls_to_blocks(
-                response.choices[0].message.tool_calls
+        # Tool-calling loop
+        for _ in range(MAX_TOOL_ITERATIONS):
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=self.max_tokens,
+                tools=all_tools if all_tools else None,
+                parallel_tool_calls=True,
             )
+
+            total_input += response.usage.prompt_tokens if response.usage else 0
+            total_output += response.usage.completion_tokens if response.usage else 0
+
+            choice = response.choices[0]
+            assistant_msg = choice.message
+
+            if not assistant_msg.tool_calls:
+                # No tool calls → we have the final response
+                response_text = assistant_msg.content or ""
+                break
+
+            # Process tool calls
+            messages.append(assistant_msg.model_dump())
+
+            has_integration_calls = False
+            for tc in assistant_msg.tool_calls:
+                if self._is_block_tool(tc.function.name):
+                    # Block tools: parse as UI blocks, send dummy response
+                    block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc.function.name)
+                    try:
+                        payload = json.loads(tc.function.arguments)
+                        all_blocks.append({
+                            "id": str(uuid4()),
+                            "type": block_type,
+                            "payload": payload,
+                        })
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning("Failed to parse %s: %s", tc.function.name, e)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": "OK",
+                    })
+                else:
+                    # Integration tool: execute via Nango
+                    has_integration_calls = True
+                    try:
+                        args = json.loads(tc.function.arguments)
+                    except json.JSONDecodeError:
+                        args = {}
+
+                    provider = find_provider_for_tool(tc.function.name)
+                    if provider and integrations:
+                        # Find the nango_connection_id for this provider
+                        conn_id = next(
+                            (i["nango_connection_id"] for i in integrations if i["provider"] == provider),
+                            None,
+                        )
+                        if conn_id:
+                            result = await execute_integration_tool(
+                                tool_name=tc.function.name,
+                                arguments=args,
+                                provider=provider,
+                                nango_connection_id=conn_id,
+                            )
+                            # Emit a tool_call block for the frontend
+                            all_blocks.append({
+                                "id": str(uuid4()),
+                                "type": "tool_call",
+                                "payload": {
+                                    "provider": provider,
+                                    "tool": tc.function.name,
+                                    "result": json.loads(result) if result.startswith("{") or result.startswith("[") else result,
+                                },
+                            })
+                        else:
+                            result = json.dumps({"error": f"No connection found for {provider}"})
+                    else:
+                        result = json.dumps({"error": f"Unknown tool: {tc.function.name}"})
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
+                    })
+
+            # If only block tools were called (no integration tools),
+            # the LLM won't need another turn
+            if not has_integration_calls:
+                response_text = assistant_msg.content or ""
+                break
+        else:
+            response_text = assistant_msg.content or ""
 
         # Extract citations
         citations = self._extract_citations(chunks, response_text)
 
-        return response_text, citations, blocks, tokens_input, tokens_output
+        return response_text, citations, all_blocks, total_input, total_output
 
     async def chat_stream(
         self,
@@ -303,22 +426,25 @@ Remember to cite your sources (document name and page number) when using informa
         collection_ids: list[UUID],
         system_prompt: str | None = None,
         conversation_history: list[dict] | None = None,
+        integrations: list[dict] | None = None,
     ) -> AsyncGenerator[ChatStreamEvent, None]:
         """
-        Streaming chat with SSE events.
+        Streaming chat with SSE events and tool-calling loop.
 
         Yields:
             ChatStreamEvent objects for SSE
         """
         # Retrieve relevant chunks
-        chunks = await self.retrieval.retrieve(
-            query=message,
-            tenant_id=tenant_id,
-            collection_ids=collection_ids,
-        )
+        chunks = []
+        if collection_ids:
+            chunks = await self.retrieval.retrieve(
+                query=message,
+                tenant_id=tenant_id,
+                collection_ids=collection_ids,
+            )
 
         # Build context
-        context = self.retrieval.build_context(chunks)
+        context = self.retrieval.build_context(chunks) if chunks else ""
 
         # Yield start event with chunk info
         yield ChatStreamEvent(
@@ -330,7 +456,7 @@ Remember to cite your sources (document name and page number) when using informa
         messages = []
         messages.append({
             "role": "system",
-            "content": self._build_system_prompt(system_prompt, context),
+            "content": self._build_system_prompt(system_prompt, context, integrations),
         })
 
         if conversation_history:
@@ -338,66 +464,147 @@ Remember to cite your sources (document name and page number) when using informa
 
         messages.append({"role": "user", "content": message})
 
-        # Stream LLM response
+        all_tools = self._build_tools_list(integrations)
         full_response = ""
         tokens_input = 0
         tokens_output = 0
-        tool_calls_acc: dict[int, dict] = {}  # index -> {name, arguments}
 
         try:
-            stream = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                tools=BLOCK_TOOLS,
-                parallel_tool_calls=True,
-                stream=True,
-                stream_options={"include_usage": True},
-            )
+            # Tool-calling loop: stream the final response but handle
+            # intermediate tool calls non-streamed
+            for iteration in range(MAX_TOOL_ITERATIONS):
+                tool_calls_acc: dict[int, dict] = {}
+                is_final_stream = True
 
-            async for chunk in stream:
-                # Stream text tokens
-                if chunk.choices and chunk.choices[0].delta.content:
-                    token = chunk.choices[0].delta.content
-                    full_response += token
-                    yield ChatStreamEvent(event="token", data=token)
+                stream = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=self.max_tokens,
+                    tools=all_tools if all_tools else None,
+                    parallel_tool_calls=True,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                )
 
-                # Accumulate tool call arguments
-                if chunk.choices and chunk.choices[0].delta.tool_calls:
-                    for tc in chunk.choices[0].delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = {"name": "", "arguments": ""}
-                        if tc.function and tc.function.name:
-                            tool_calls_acc[idx]["name"] = tc.function.name
-                        if tc.function and tc.function.arguments:
-                            tool_calls_acc[idx]["arguments"] += tc.function.arguments
+                streamed_content = ""
+                async for chunk in stream:
+                    # Stream text tokens
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        token = chunk.choices[0].delta.content
+                        streamed_content += token
+                        full_response += token
+                        yield ChatStreamEvent(event="token", data=token)
 
-                # Get usage from final chunk
-                if chunk.usage:
-                    tokens_input = chunk.usage.prompt_tokens
-                    tokens_output = chunk.usage.completion_tokens
+                    # Accumulate tool call arguments
+                    if chunk.choices and chunk.choices[0].delta.tool_calls:
+                        for tc in chunk.choices[0].delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_calls_acc:
+                                tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc.id:
+                                tool_calls_acc[idx]["id"] = tc.id
+                            if tc.function and tc.function.name:
+                                tool_calls_acc[idx]["name"] = tc.function.name
+                            if tc.function and tc.function.arguments:
+                                tool_calls_acc[idx]["arguments"] += tc.function.arguments
 
-            # After stream ends: emit blocks from accumulated tool calls
-            for tc_data in tool_calls_acc.values():
-                block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc_data["name"])
-                if block_type is None:
-                    continue
-                try:
-                    payload = json.loads(tc_data["arguments"])
-                    block = {
-                        "id": str(uuid4()),
-                        "type": block_type,
-                        "payload": payload,
-                    }
-                    yield ChatStreamEvent(event="block", data=block)
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.warning("Failed to parse %s args: %s", tc_data["name"], e)
-                    yield ChatStreamEvent(event="block", data={
-                        "id": str(uuid4()),
-                        "type": "error",
-                        "payload": {"message": str(e), "raw": tc_data["arguments"][:200]},
+                    # Get usage from final chunk
+                    if chunk.usage:
+                        tokens_input += chunk.usage.prompt_tokens
+                        tokens_output += chunk.usage.completion_tokens
+
+                if not tool_calls_acc:
+                    # No tool calls, we're done
+                    break
+
+                # Process tool calls
+                has_integration_calls = False
+                # Build assistant message with tool_calls for the messages list
+                assistant_tool_calls = []
+                for tc_data in tool_calls_acc.values():
+                    assistant_tool_calls.append({
+                        "id": tc_data["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc_data["name"],
+                            "arguments": tc_data["arguments"],
+                        },
                     })
+
+                messages.append({
+                    "role": "assistant",
+                    "content": streamed_content or None,
+                    "tool_calls": assistant_tool_calls,
+                })
+
+                for tc_data in tool_calls_acc.values():
+                    if self._is_block_tool(tc_data["name"]):
+                        # Block/UI tool: emit as block
+                        block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc_data["name"])
+                        try:
+                            payload = json.loads(tc_data["arguments"])
+                            block = {
+                                "id": str(uuid4()),
+                                "type": block_type,
+                                "payload": payload,
+                            }
+                            yield ChatStreamEvent(event="block", data=block)
+                        except (json.JSONDecodeError, KeyError) as e:
+                            logger.warning("Failed to parse %s: %s", tc_data["name"], e)
+                            yield ChatStreamEvent(event="block", data={
+                                "id": str(uuid4()),
+                                "type": "error",
+                                "payload": {"message": str(e), "raw": tc_data["arguments"][:200]},
+                            })
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc_data["id"],
+                            "content": "OK",
+                        })
+                    else:
+                        # Integration tool: execute and continue loop
+                        has_integration_calls = True
+                        try:
+                            args = json.loads(tc_data["arguments"])
+                        except json.JSONDecodeError:
+                            args = {}
+
+                        provider = find_provider_for_tool(tc_data["name"])
+                        result = json.dumps({"error": f"Unknown tool: {tc_data['name']}"})
+
+                        if provider and integrations:
+                            conn_id = next(
+                                (i["nango_connection_id"] for i in integrations if i["provider"] == provider),
+                                None,
+                            )
+                            if conn_id:
+                                # Emit tool_call block to show the user what's happening
+                                yield ChatStreamEvent(event="block", data={
+                                    "id": str(uuid4()),
+                                    "type": "tool_call",
+                                    "payload": {
+                                        "provider": provider,
+                                        "tool": tc_data["name"],
+                                        "status": "calling",
+                                    },
+                                })
+
+                                result = await execute_integration_tool(
+                                    tool_name=tc_data["name"],
+                                    arguments=args,
+                                    provider=provider,
+                                    nango_connection_id=conn_id,
+                                )
+
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc_data["id"],
+                            "content": result,
+                        })
+
+                # If only block tools, we're done
+                if not has_integration_calls:
+                    break
 
             # Yield citations
             citations = self._extract_citations(chunks, full_response)

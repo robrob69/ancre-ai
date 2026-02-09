@@ -13,6 +13,7 @@ export interface Assistant {
   created_at: string
   updated_at: string
   collection_ids: string[]
+  integration_ids: string[]
 }
 
 export interface AssistantCreate {
@@ -21,6 +22,7 @@ export interface AssistantCreate {
   model?: string
   settings?: Record<string, unknown>
   collection_ids?: string[]
+  integration_ids?: string[]
 }
 
 export interface AssistantUpdate {
@@ -29,6 +31,7 @@ export interface AssistantUpdate {
   model?: string
   settings?: Record<string, unknown>
   collection_ids?: string[]
+  integration_ids?: string[]
 }
 
 // Collection types
@@ -100,7 +103,7 @@ export interface Citation {
 }
 
 // Generative UI blocks
-export type BlockType = "kpi_cards" | "steps" | "table" | "callout" | "error"
+export type BlockType = "kpi_cards" | "steps" | "table" | "callout" | "tool_call" | "error"
 
 export interface Block {
   id: string

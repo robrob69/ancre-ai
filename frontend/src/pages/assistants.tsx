@@ -8,6 +8,7 @@ import {
   Trash2,
   MessageSquare,
   AlertCircle,
+  Plug,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -210,11 +211,19 @@ export function AssistantsPage() {
                 <p className="line-clamp-3 text-sm text-muted-foreground">
                   {assistant.system_prompt || "Aucun prompt système défini."}
                 </p>
-                {assistant.collection_ids.length > 0 && (
-                  <Badge variant="secondary" className="mt-3">
-                    {assistant.collection_ids.length} collection(s)
-                  </Badge>
-                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {assistant.collection_ids.length > 0 && (
+                    <Badge variant="secondary">
+                      {assistant.collection_ids.length} collection(s)
+                    </Badge>
+                  )}
+                  {assistant.integration_ids.length > 0 && (
+                    <Badge variant="outline" className="gap-1">
+                      <Plug className="h-3 w-3" />
+                      {assistant.integration_ids.length} outil(s)
+                    </Badge>
+                  )}
+                </div>
               </CardContent>
               <CardFooter className="flex gap-2">
                 <Button

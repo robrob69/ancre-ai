@@ -54,6 +54,72 @@ const PROVIDERS = [
     description: "CRM - Full Salesforce data",
     color: "bg-blue-500",
   },
+  {
+    key: "pipedrive",
+    name: "Pipedrive",
+    description: "CRM - Deals, contacts, activités",
+    color: "bg-green-600",
+  },
+  {
+    key: "gmail",
+    name: "Gmail",
+    description: "Email - Recherche et envoi d'emails",
+    color: "bg-red-500",
+  },
+  {
+    key: "google-drive",
+    name: "Google Drive",
+    description: "Stockage - Fichiers, dossiers, documents",
+    color: "bg-yellow-600",
+  },
+  {
+    key: "outlook",
+    name: "Outlook",
+    description: "Email - Microsoft Outlook / Office 365",
+    color: "bg-blue-600",
+  },
+  {
+    key: "shopify",
+    name: "Shopify",
+    description: "E-commerce - Commandes, produits, clients",
+    color: "bg-green-500",
+  },
+  {
+    key: "stripe",
+    name: "Stripe",
+    description: "Paiements - Clients, factures, abonnements",
+    color: "bg-purple-500",
+  },
+  {
+    key: "notion",
+    name: "Notion",
+    description: "Productivité - Pages, bases de données",
+    color: "bg-gray-800",
+  },
+  {
+    key: "slack",
+    name: "Slack",
+    description: "Messagerie - Canaux, messages, fichiers",
+    color: "bg-purple-600",
+  },
+  {
+    key: "nocrm",
+    name: "noCRM.io",
+    description: "CRM - Leads, prospection",
+    color: "bg-teal-500",
+  },
+  {
+    key: "lemlist",
+    name: "Lemlist",
+    description: "Outreach - Campagnes, séquences email",
+    color: "bg-indigo-500",
+  },
+  {
+    key: "fireflies",
+    name: "Fireflies",
+    description: "Meetings - Transcriptions, résumés",
+    color: "bg-yellow-500",
+  },
 ] as const
 
 function statusBadge(status: string) {
@@ -169,12 +235,12 @@ export function IntegrationsPage() {
   }
 
   return (
-    <div className="container max-w-4xl py-8">
+    <div className="container max-w-6xl py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Intégrations</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Connecteurs</h1>
         <p className="mt-2 text-muted-foreground">
-          Connectez vos outils CRM et ERP pour enrichir vos assistants avec des
-          données externes.
+          Connectez vos outils pour donner à vos assistants l'accès à vos
+          données externes en temps réel.
         </p>
       </div>
 
@@ -183,7 +249,7 @@ export function IntegrationsPage() {
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {PROVIDERS.map((provider) => {
             const connection = getConnectionForProvider(provider.key)
             const isConnecting = connectingProvider === provider.key

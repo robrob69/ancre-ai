@@ -19,6 +19,7 @@ class AssistantCreate(AssistantBase):
     """Schema for creating an assistant."""
 
     collection_ids: list[UUID] | None = None
+    integration_ids: list[UUID] | None = None
 
 
 class AssistantUpdate(BaseModel):
@@ -29,6 +30,7 @@ class AssistantUpdate(BaseModel):
     model: str | None = None
     settings: dict | None = None
     collection_ids: list[UUID] | None = None
+    integration_ids: list[UUID] | None = None
 
 
 class AssistantRead(AssistantBase):
@@ -43,6 +45,7 @@ class AssistantRead(AssistantBase):
 
 
 class AssistantReadWithCollections(AssistantRead):
-    """Schema for reading an assistant with collections."""
+    """Schema for reading an assistant with collections and integrations."""
 
     collection_ids: list[UUID] = []
+    integration_ids: list[UUID] = []

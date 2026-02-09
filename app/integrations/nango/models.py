@@ -8,14 +8,28 @@ We store a reference to each Nango connection in our DB to:
 We do NOT store OAuth tokens. Nango manages those.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, String, Table, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.assistant import Assistant
+
+# M2M junction table
+assistant_integrations = Table(
+    "assistant_integrations",
+    Base.metadata,
+    Column("assistant_id", PG_UUID(as_uuid=True), ForeignKey("assistants.id", ondelete="CASCADE"), primary_key=True),
+    Column("nango_connection_id", PG_UUID(as_uuid=True), ForeignKey("nango_connections.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class NangoConnection(Base):
@@ -52,4 +66,11 @@ class NangoConnection(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    assistants: Mapped[list["Assistant"]] = relationship(
+        "Assistant",
+        secondary=assistant_integrations,
+        back_populates="integrations",
     )

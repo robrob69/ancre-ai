@@ -1,6 +1,14 @@
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useLocation } from "react-router-dom"
 import { useAuth, useUser, useClerk } from "@clerk/clerk-react"
-import { Anchor, LogOut, User, CreditCard, Settings, FolderOpen, Plug } from "lucide-react"
+import {
+  Anchor,
+  LogOut,
+  User,
+  CreditCard,
+  Bot,
+  FolderOpen,
+  Plug,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -11,12 +19,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { cn } from "@/lib/utils"
+
+const APP_NAV_ITEMS = [
+  { to: "/app/assistants", label: "Assistants", icon: Bot },
+  { to: "/app/collections", label: "Collections", icon: FolderOpen },
+  { to: "/app/integrations", label: "Connecteurs", icon: Plug },
+] as const
 
 export function Header() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { isSignedIn } = useAuth()
   const { user } = useUser()
   const { signOut } = useClerk()
+
+  const isAppRoute = location.pathname.startsWith("/app")
 
   const handleLogout = async () => {
     await signOut()
@@ -37,26 +55,51 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="flex items-center space-x-2">
+        <Link to={isSignedIn ? "/app/assistants" : "/"} className="flex items-center space-x-2">
           <Anchor className="h-8 w-8 text-primary" />
           <span className="text-xl font-bold">Ancre</span>
         </Link>
 
-        {/* Navigation */}
-        <nav className="hidden md:flex items-center space-x-6">
-          <Link
-            to="/"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
-          >
-            Accueil
-          </Link>
-          <Link
-            to="/pricing"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
-          >
-            Tarifs
-          </Link>
-        </nav>
+        {/* App navigation (shown when signed in and on /app routes) */}
+        {isSignedIn && isAppRoute ? (
+          <nav className="hidden md:flex items-center space-x-1">
+            {APP_NAV_ITEMS.map((item) => {
+              const isActive =
+                location.pathname === item.to ||
+                location.pathname.startsWith(item.to + "/")
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
+        ) : (
+          <nav className="hidden md:flex items-center space-x-6">
+            <Link
+              to="/"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+            >
+              Accueil
+            </Link>
+            <Link
+              to="/pricing"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+            >
+              Tarifs
+            </Link>
+          </nav>
+        )}
 
         {/* Auth area */}
         <div className="flex items-center space-x-4">
@@ -91,21 +134,9 @@ export function Header() {
                   <User className="mr-2 h-4 w-4" />
                   <span>Mon profil</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/app/assistants")}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>Mes assistants</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/app/collections")}>
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  <span>Mes collections</span>
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate("/app/billing")}>
                   <CreditCard className="mr-2 h-4 w-4" />
                   <span>Facturation</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/app/integrations")}>
-                  <Plug className="mr-2 h-4 w-4" />
-                  <span>Intégrations</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout}>

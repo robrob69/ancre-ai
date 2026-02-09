@@ -40,30 +40,40 @@ async def chat(
     """Chat with an assistant (non-streaming)."""
     tenant_id = user.tenant_id
     
-    # Get assistant with collections
+    # Get assistant with collections and integrations
     result = await db.execute(
         select(Assistant)
-        .options(selectinload(Assistant.collections))
+        .options(
+            selectinload(Assistant.collections),
+            selectinload(Assistant.integrations),
+        )
         .where(Assistant.id == assistant_id)
         .where(Assistant.tenant_id == tenant_id)
     )
     assistant = result.scalar_one_or_none()
-    
+
     if not assistant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assistant not found",
         )
-    
-    if not assistant.collections:
+
+    if not assistant.collections and not assistant.integrations:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Assistant has no collections assigned",
+            detail="L'assistant n'a ni collections ni outils connectés.",
         )
-    
+
     collection_ids = [c.id for c in assistant.collections]
     conversation_id = request.conversation_id or uuid4()
-    
+
+    # Build integrations list for the chat service
+    integrations_data = [
+        {"provider": i.provider, "nango_connection_id": i.nango_connection_id}
+        for i in assistant.integrations
+        if i.status == "connected"
+    ]
+
     # Check chat quota (free tier limit)
     allowed, error = await quota_service.check_chat_allowed(db, user)
     if not allowed:
@@ -71,7 +81,7 @@ async def chat(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error,
         )
-    
+
     # Get conversation history if requested
     history = []
     if request.include_history and request.conversation_id:
@@ -84,7 +94,7 @@ async def chat(
         )
         messages = list(reversed(result.scalars().all()))
         history = [{"role": m.role, "content": m.content} for m in messages]
-    
+
     # Call chat service
     response_text, citations, blocks, tokens_input, tokens_output = await chat_service.chat(
         message=request.message,
@@ -92,6 +102,7 @@ async def chat(
         collection_ids=collection_ids,
         system_prompt=assistant.system_prompt,
         conversation_history=history,
+        integrations=integrations_data or None,
     )
 
     # Save user message
@@ -143,30 +154,40 @@ async def chat_stream(
     tenant_id = user.tenant_id
     user_id = user.id
     
-    # Get assistant with collections
+    # Get assistant with collections and integrations
     result = await db.execute(
         select(Assistant)
-        .options(selectinload(Assistant.collections))
+        .options(
+            selectinload(Assistant.collections),
+            selectinload(Assistant.integrations),
+        )
         .where(Assistant.id == assistant_id)
         .where(Assistant.tenant_id == tenant_id)
     )
     assistant = result.scalar_one_or_none()
-    
+
     if not assistant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assistant not found",
         )
-    
-    if not assistant.collections:
+
+    if not assistant.collections and not assistant.integrations:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Assistant has no collections assigned",
+            detail="L'assistant n'a ni collections ni outils connectés.",
         )
-    
+
     collection_ids = [c.id for c in assistant.collections]
     conversation_id = request.conversation_id or uuid4()
-    
+
+    # Build integrations list for the chat service
+    integrations_data = [
+        {"provider": i.provider, "nango_connection_id": i.nango_connection_id}
+        for i in assistant.integrations
+        if i.status == "connected"
+    ]
+
     # Check chat quota (free tier limit)
     allowed, error = await quota_service.check_chat_allowed(db, user)
     if not allowed:
@@ -174,10 +195,10 @@ async def chat_stream(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error,
         )
-    
+
     # Record quota usage immediately (before streaming)
     await quota_service.record_chat_request(db, user_id)
-    
+
     # Get conversation history if requested
     history = []
     if request.include_history and request.conversation_id:
@@ -223,6 +244,7 @@ async def chat_stream(
                 collection_ids=collection_ids,
                 system_prompt=assistant.system_prompt,
                 conversation_history=history,
+                integrations=integrations_data or None,
             ):
                 if event.event == "token":
                     full_response += event.data

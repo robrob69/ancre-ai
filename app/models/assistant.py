@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.models.tenant import Tenant
     from app.models.collection import Collection
     from app.models.message import Message
+    from app.integrations.nango.models import NangoConnection
 
 
 class Assistant(Base):
@@ -53,6 +54,11 @@ class Assistant(Base):
     collections: Mapped[list["Collection"]] = relationship(
         "Collection",
         secondary="assistant_collections",
+        back_populates="assistants",
+    )
+    integrations: Mapped[list["NangoConnection"]] = relationship(
+        "NangoConnection",
+        secondary="assistant_integrations",
         back_populates="assistants",
     )
     messages: Mapped[list["Message"]] = relationship(

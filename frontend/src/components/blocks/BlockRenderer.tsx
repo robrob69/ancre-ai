@@ -4,6 +4,7 @@ import { KpiCards } from "./KpiCards"
 import { Steps } from "./Steps"
 import { DataTable } from "./DataTable"
 import { Callout } from "./Callout"
+import { ToolCallBlock } from "./ToolCallBlock"
 import { ErrorBlock } from "./ErrorBlock"
 
 const blockComponents = {
@@ -11,6 +12,7 @@ const blockComponents = {
   steps: Steps,
   table: DataTable,
   callout: Callout,
+  tool_call: ToolCallBlock,
 } as const
 
 type RenderableBlockType = keyof typeof blockComponents

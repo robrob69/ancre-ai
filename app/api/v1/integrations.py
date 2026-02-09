@@ -55,26 +55,8 @@ async def initiate_nango_connection(
     )
     existing = result.scalar_one_or_none()
 
-    if existing and existing.status == "connected":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Connection to {provider} already exists for this tenant",
-        )
-
-    try:
-        # Create session in Nango
-        session_data = await nango_client.create_connection_session(
-            provider_config_key=provider,
-            connection_id=connection_id,
-        )
-    except Exception as e:
-        logger.error(f"Failed to create Nango session for {provider}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to initiate connection with Nango: {e}",
-        )
-
     # Store or update connection reference in our DB
+    # Allow reconnection even if status is "connected" (user may want to re-auth)
     if existing:
         existing.status = "pending"
     else:
@@ -89,13 +71,11 @@ async def initiate_nango_connection(
 
     await db.flush()
 
-    # Build the connect URL for the frontend
-    # Nango Connect uses a session token that the frontend passes to their widget
-    connect_url = session_data.get("connectUrl", "")
-    if not connect_url:
-        token = session_data.get("data", {}).get("token", session_data.get("token", ""))
-        nango_base = nango_client.base_url
-        connect_url = f"{nango_base}/oauth/connect/{provider}?connection_id={connection_id}&connect_session_token={token}"
+    # Build the direct OAuth redirect URL (Nango v0.36)
+    connect_url = nango_client.get_oauth_connect_url(
+        provider_config_key=provider,
+        connection_id=connection_id,
+    )
 
     return NangoConnectResponse(
         connect_url=connect_url,

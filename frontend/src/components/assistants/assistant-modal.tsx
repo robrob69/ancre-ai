@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query"
-import { Loader2 } from "lucide-react"
+import { Loader2, Plug } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -23,16 +23,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { assistantsApi } from "@/api/assistants"
 import { collectionsApi } from "@/api/collections"
+import { integrationsApi } from "@/api/integrations"
 import type { Assistant } from "@/types"
+
+const MAX_INTEGRATIONS = 2
 
 const assistantSchema = z.object({
   name: z.string().min(1, "Le nom est requis"),
   system_prompt: z.string().optional(),
   model: z.string().default("gpt-4o-mini"),
   collection_ids: z.array(z.string()).default([]),
+  integration_ids: z.array(z.string()).default([]),
 })
 
 type AssistantFormData = z.infer<typeof assistantSchema>
@@ -64,6 +69,17 @@ export function AssistantModal({
     enabled: open,
   })
 
+  const { data: connections } = useQuery({
+    queryKey: ["nango-connections"],
+    queryFn: integrationsApi.listConnections,
+    enabled: open,
+  })
+
+  // Only show connected integrations
+  const connectedIntegrations = connections?.filter(
+    (c) => c.status === "connected"
+  ) ?? []
+
   const {
     register,
     handleSubmit,
@@ -78,10 +94,12 @@ export function AssistantModal({
       system_prompt: "",
       model: "gpt-4o-mini",
       collection_ids: [],
+      integration_ids: [],
     },
   })
 
   const selectedModel = watch("model")
+  const selectedIntegrations = watch("integration_ids")
 
   useEffect(() => {
     if (assistant) {
@@ -90,6 +108,7 @@ export function AssistantModal({
         system_prompt: assistant.system_prompt || "",
         model: assistant.model,
         collection_ids: assistant.collection_ids,
+        integration_ids: assistant.integration_ids,
       })
     } else {
       reset({
@@ -97,9 +116,30 @@ export function AssistantModal({
         system_prompt: "",
         model: "gpt-4o-mini",
         collection_ids: [],
+        integration_ids: [],
       })
     }
   }, [assistant, reset])
+
+  const handleIntegrationToggle = (integrationId: string) => {
+    const current = selectedIntegrations || []
+    if (current.includes(integrationId)) {
+      setValue(
+        "integration_ids",
+        current.filter((id) => id !== integrationId)
+      )
+    } else {
+      if (current.length >= MAX_INTEGRATIONS) {
+        toast({
+          title: "Limite atteinte",
+          description: `Maximum ${MAX_INTEGRATIONS} outils par assistant.`,
+          variant: "destructive",
+        })
+        return
+      }
+      setValue("integration_ids", [...current, integrationId])
+    }
+  }
 
   const createMutation = useMutation({
     mutationFn: assistantsApi.create,
@@ -152,7 +192,7 @@ export function AssistantModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEditing ? "Modifier l'assistant" : "Créer un assistant"}
@@ -233,6 +273,56 @@ export function AssistantModal({
                       </div>
                     </label>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {connectedIntegrations.length > 0 && (
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Plug className="h-4 w-4" />
+                  Outils connectés
+                  <Badge variant="outline" className="ml-auto text-xs">
+                    {selectedIntegrations?.length || 0} / {MAX_INTEGRATIONS}
+                  </Badge>
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  L'assistant pourra appeler ces outils en temps réel pendant le chat.
+                </p>
+                <div className="grid gap-2">
+                  {connectedIntegrations.map((integration) => {
+                    const isSelected = selectedIntegrations?.includes(integration.id)
+                    return (
+                      <button
+                        key={integration.id}
+                        type="button"
+                        onClick={() => handleIntegrationToggle(integration.id)}
+                        className={`flex items-center gap-3 rounded-md border p-3 text-left transition-colors ${
+                          isSelected
+                            ? "border-primary bg-primary/5"
+                            : "hover:bg-muted/50"
+                        }`}
+                      >
+                        <div
+                          className={`flex h-8 w-8 items-center justify-center rounded-md text-white font-bold text-xs ${
+                            isSelected ? "bg-primary" : "bg-muted-foreground/50"
+                          }`}
+                        >
+                          {integration.provider.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium capitalize">
+                            {integration.provider}
+                          </p>
+                        </div>
+                        {isSelected && (
+                          <Badge variant="default" className="text-xs">
+                            Actif
+                          </Badge>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}

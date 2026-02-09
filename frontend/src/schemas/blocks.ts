@@ -51,6 +51,18 @@ export const calloutSchema = z.object({
 export type CalloutPayload = z.infer<typeof calloutSchema>
 
 // ---------------------------------------------------------------------------
+// Tool Call
+// ---------------------------------------------------------------------------
+export const toolCallSchema = z.object({
+  provider: z.string(),
+  tool: z.string(),
+  arguments: z.record(z.unknown()).nullish(),
+  status: z.enum(["success", "error"]).nullish(),
+  summary: z.string().nullish(),
+})
+export type ToolCallPayload = z.infer<typeof toolCallSchema>
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 export const blockSchemas = {
@@ -58,4 +70,5 @@ export const blockSchemas = {
   steps: stepsSchema,
   table: tableSchema,
   callout: calloutSchema,
+  tool_call: toolCallSchema,
 } as const

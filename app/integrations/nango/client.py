@@ -3,16 +3,134 @@
 Nango manages OAuth tokens and provides a REST API to:
 - Create connections (initiate OAuth flows)
 - List connections
-- Retrieve access tokens (for calling CRM/ERP APIs)
+- Proxy API calls (Nango injects auth headers automatically)
 
 We never store OAuth tokens ourselves. Nango handles token refresh
 and storage. We only store a reference (connection_id + provider)
 in our DB linked to the tenant.
+
+For calling provider APIs we use the **Nango Proxy**::
+
+    proxy = nango_client.proxy(connection_id, provider_config_key)
+    resp = await proxy.get("/crm/v3/objects/deals")
+
+Nango resolves the base URL and injects the correct auth.
 """
+
+from __future__ import annotations
 
 import httpx
 
 from app.config import get_settings
+
+
+class NangoProxy:
+    """Pre-bound proxy for a specific Nango connection.
+
+    All HTTP calls go through ``{NANGO_URL}/proxy/{endpoint}`` with the
+    ``Connection-Id`` and ``Provider-Config-Key`` headers.  Nango adds
+    the provider base URL and OAuth token automatically.
+
+    Usage in provider modules::
+
+        async def execute(tool_name, args, proxy: NangoProxy) -> str:
+            resp = await proxy.get("/crm/v3/objects/deals", params={"limit": 10})
+            data = resp.json()
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        secret_key: str,
+        connection_id: str,
+        provider_config_key: str,
+    ) -> None:
+        self._base_url = base_url
+        self._secret_key = secret_key
+        self.connection_id = connection_id
+        self.provider_config_key = provider_config_key
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._secret_key}",
+            "Connection-Id": self.connection_id,
+            "Provider-Config-Key": self.provider_config_key,
+        }
+
+    async def get(
+        self,
+        endpoint: str,
+        params: dict | None = None,
+        headers: dict | None = None,
+    ) -> httpx.Response:
+        """GET through Nango proxy."""
+        h = {**self._headers, **(headers or {})}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self._base_url}/proxy{endpoint}",
+                headers=h,
+                params=params,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp
+
+    async def post(
+        self,
+        endpoint: str,
+        json: dict | None = None,
+        params: dict | None = None,
+        headers: dict | None = None,
+    ) -> httpx.Response:
+        """POST through Nango proxy."""
+        h = {**self._headers, "Content-Type": "application/json", **(headers or {})}
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self._base_url}/proxy{endpoint}",
+                headers=h,
+                json=json,
+                params=params,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp
+
+    async def put(
+        self,
+        endpoint: str,
+        json: dict | None = None,
+        headers: dict | None = None,
+    ) -> httpx.Response:
+        """PUT through Nango proxy."""
+        h = {**self._headers, "Content-Type": "application/json", **(headers or {})}
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{self._base_url}/proxy{endpoint}",
+                headers=h,
+                json=json,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp
+
+    async def delete(
+        self,
+        endpoint: str,
+        params: dict | None = None,
+        headers: dict | None = None,
+    ) -> httpx.Response:
+        """DELETE through Nango proxy."""
+        h = {**self._headers, **(headers or {})}
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(
+                f"{self._base_url}/proxy{endpoint}",
+                headers=h,
+                params=params,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp
 
 
 class NangoClient:
@@ -22,6 +140,20 @@ class NangoClient:
         settings = get_settings()
         self.base_url = settings.nango_url.rstrip("/")
         self.secret_key = settings.nango_secret_key
+        self.public_key = settings.nango_public_key
+
+    def proxy(
+        self,
+        connection_id: str,
+        provider_config_key: str,
+    ) -> NangoProxy:
+        """Return a :class:`NangoProxy` bound to *connection_id*."""
+        return NangoProxy(
+            base_url=self.base_url,
+            secret_key=self.secret_key,
+            connection_id=connection_id,
+            provider_config_key=provider_config_key,
+        )
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -30,46 +162,29 @@ class NangoClient:
             "Content-Type": "application/json",
         }
 
-    async def create_connection_session(
+    def get_oauth_connect_url(
         self,
         provider_config_key: str,
         connection_id: str,
-    ) -> dict:
-        """Create a session token for the Nango Connect frontend widget.
+    ) -> str:
+        """Build the Nango OAuth redirect URL.
 
-        This returns a token that the frontend can use to open the
-        OAuth popup via @nangohq/frontend or a direct redirect URL.
+        In Nango v0.36 the flow is a simple redirect:
+        ``{NANGO_URL}/oauth/connect/{provider_config_key}?connection_id={connection_id}``
 
-        Args:
-            provider_config_key: The integration key in Nango (e.g. "hubspot", "salesforce")
-            connection_id: Unique ID we assign (tenant_id + provider)
-
-        Returns:
-            Dict with connect_session_token and possibly a redirect URL
+        Nango handles the full OAuth dance and redirects back to its
+        own callback URL.
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/connect/sessions",
-                headers=self._headers,
-                json={
-                    "end_user": {
-                        "id": connection_id,
-                        "display_name": connection_id,
-                    },
-                    "allowed_integrations": [provider_config_key],
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        return (
+            f"{self.base_url}/oauth/connect/{provider_config_key}"
+            f"?connection_id={connection_id}"
+            f"&public_key={self.public_key}"
+        )
 
     async def list_connections(self, connection_id: str | None = None) -> list[dict]:
         """List connections, optionally filtered by connection_id.
 
-        Args:
-            connection_id: Optional filter for a specific connection
-
-        Returns:
-            List of connection dicts from Nango API
+        Nango v0.36 endpoint: ``GET /api/v1/connection``
         """
         params: dict[str, str] = {}
         if connection_id:
@@ -77,7 +192,7 @@ class NangoClient:
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.base_url}/connections",
+                f"{self.base_url}/api/v1/connection",
                 headers=self._headers,
                 params=params,
             )
@@ -92,16 +207,11 @@ class NangoClient:
     ) -> dict:
         """Get details of a specific connection.
 
-        Args:
-            provider_config_key: Integration key
-            connection_id: Connection ID
-
-        Returns:
-            Connection details dict
+        Nango v0.36 endpoint: ``GET /api/v1/connection/{connection_id}``
         """
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.base_url}/connections/{connection_id}",
+                f"{self.base_url}/api/v1/connection/{connection_id}",
                 headers=self._headers,
                 params={"provider_config_key": provider_config_key},
             )
@@ -115,46 +225,15 @@ class NangoClient:
     ) -> None:
         """Delete a connection.
 
-        Args:
-            provider_config_key: Integration key
-            connection_id: Connection ID
+        Nango v0.36 endpoint: ``DELETE /api/v1/connection/{connection_id}``
         """
         async with httpx.AsyncClient() as client:
             response = await client.delete(
-                f"{self.base_url}/connections/{connection_id}",
+                f"{self.base_url}/api/v1/connection/{connection_id}",
                 headers=self._headers,
                 params={"provider_config_key": provider_config_key},
             )
             response.raise_for_status()
-
-    async def get_token(
-        self,
-        provider_config_key: str,
-        connection_id: str,
-    ) -> dict:
-        """Get the current access token for a connection.
-
-        Nango handles token refresh automatically. This returns
-        the current valid token we can use to call the provider API.
-
-        Args:
-            provider_config_key: Integration key
-            connection_id: Connection ID
-
-        Returns:
-            Dict with access_token and metadata
-        """
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/connections/{connection_id}",
-                headers=self._headers,
-                params={
-                    "provider_config_key": provider_config_key,
-                    "force_refresh": "false",
-                },
-            )
-            response.raise_for_status()
-            return response.json()
 
 
 # Global instance
