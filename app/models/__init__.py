@@ -5,6 +5,7 @@ from app.models.assistant import Assistant
 from app.models.collection import Collection, assistant_collections
 from app.models.document import Document
 from app.models.chunk import Chunk
+from app.models.document_page import DocumentPage
 from app.models.message import Message
 from app.models.usage import Usage
 from app.models.user import User
@@ -19,6 +20,7 @@ __all__ = [
     "assistant_collections",
     "Document",
     "Chunk",
+    "DocumentPage",
     "Message",
     "Usage",
     "User",

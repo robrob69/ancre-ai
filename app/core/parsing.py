@@ -1,13 +1,17 @@
 """Document parsing for various file formats."""
 
 import io
+import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from bs4 import BeautifulSoup
 import markdown
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,6 +30,7 @@ class ParsedDocument:
     pages: list[ParsedPage]
     total_pages: int
     metadata: dict = field(default_factory=dict)
+    parser_used: Literal["native", "mistral_ocr"] = "native"
 
     @property
     def full_text(self) -> str:
@@ -306,6 +311,73 @@ def get_parser(content_type: str, filename: str) -> DocumentParser:
 
 
 def parse_document(content: bytes, filename: str, content_type: str) -> ParsedDocument:
-    """Parse document content using appropriate parser."""
+    """Parse document content using appropriate parser (sync, no OCR)."""
     parser = get_parser(content_type, filename)
     return parser.parse(content, filename)
+
+
+async def parse_document_with_ocr(
+    content: bytes,
+    filename: str,
+    content_type: str,
+) -> ParsedDocument:
+    """Parse document with optional Mistral OCR fallback for PDFs.
+
+    Heuristic: run native extraction first. If the extracted text is shorter
+    than ``ocr_heuristic_min_text_chars``, re-parse with Mistral OCR.
+    """
+    from app.config import get_settings
+    from app.services.document_ai.mistral_ocr import OCRProviderError, ocr_pdf
+
+    settings = get_settings()
+    is_pdf = content_type == "application/pdf" or Path(filename).suffix.lower() == ".pdf"
+
+    # Non-PDF or OCR disabled → use native parser
+    if not is_pdf or not settings.use_mistral_ocr or not settings.ocr_only_for_pdf:
+        return parse_document(content, filename, content_type)
+
+    # 1) Try native extraction first
+    native_result = parse_document(content, filename, content_type)
+    native_text_len = len(native_result.full_text.strip())
+
+    if native_text_len >= settings.ocr_heuristic_min_text_chars:
+        logger.info(
+            "Native PDF extraction sufficient (%d chars) for %s",
+            native_text_len,
+            filename,
+        )
+        return native_result
+
+    # 2) Native text too short → try OCR
+    logger.info(
+        "Native extraction only %d chars (threshold %d), attempting Mistral OCR for %s",
+        native_text_len,
+        settings.ocr_heuristic_min_text_chars,
+        filename,
+    )
+
+    try:
+        ocr_pages = await ocr_pdf(content, filename)
+    except OCRProviderError:
+        logger.warning("Mistral OCR failed for %s, falling back to native result", filename)
+        return native_result
+
+    if not ocr_pages:
+        return native_result
+
+    pages = [
+        ParsedPage(
+            page_number=p["page"],
+            content=p["text"],
+            metadata=p.get("meta") or {},
+        )
+        for p in ocr_pages
+        if p["text"].strip()
+    ]
+
+    return ParsedDocument(
+        pages=pages,
+        total_pages=len(ocr_pages),
+        metadata=native_result.metadata,
+        parser_used="mistral_ocr",
+    )

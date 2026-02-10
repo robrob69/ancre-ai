@@ -1,7 +1,9 @@
 """Retrieval service for RAG."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.vector_store import vector_store
 from app.services.embedding import embedding_service
@@ -9,7 +11,7 @@ from app.services.embedding import embedding_service
 
 @dataclass
 class RetrievedChunk:
-    """A chunk retrieved from vector search."""
+    """A chunk retrieved from search."""
 
     chunk_id: str
     document_id: str
@@ -18,10 +20,12 @@ class RetrievedChunk:
     page_number: int | None
     section_title: str | None
     score: float
+    fused_score: float | None = None
+    rerank_score: float | None = None
 
 
 class RetrievalService:
-    """Service for retrieving relevant chunks."""
+    """Service for retrieving relevant chunks (now delegates to hybrid orchestrator)."""
 
     def __init__(self, top_k: int = 20, score_threshold: float = 0.3):
         self.top_k = top_k
@@ -33,23 +37,27 @@ class RetrievalService:
         tenant_id: UUID,
         collection_ids: list[UUID] | None = None,
         top_k: int | None = None,
+        db: AsyncSession | None = None,
     ) -> list[RetrievedChunk]:
+        """Retrieve relevant chunks for a query.
+
+        If a db session is provided, uses the full hybrid pipeline
+        (keyword + vector + RRF + rerank). Otherwise falls back to
+        vector-only search for backward compatibility.
         """
-        Retrieve relevant chunks for a query.
-        
-        Args:
-            query: User query
-            tenant_id: Tenant ID for filtering
-            collection_ids: Optional list of collection IDs to search
-            top_k: Override default top_k
-        
-        Returns:
-            List of retrieved chunks sorted by relevance
-        """
-        # Generate query embedding
+        if db is not None:
+            from app.core.retrieval.orchestrator import retrieve_context
+
+            return await retrieve_context(
+                db=db,
+                tenant_id=tenant_id,
+                collection_ids=collection_ids,
+                query=query,
+            )
+
+        # Fallback: vector-only (backward compat)
         query_vector = await embedding_service.embed_query(query)
-        
-        # Search vector store
+
         results = await vector_store.search(
             query_vector=query_vector,
             tenant_id=tenant_id,
@@ -57,8 +65,7 @@ class RetrievalService:
             limit=top_k or self.top_k,
             score_threshold=self.score_threshold,
         )
-        
-        # Convert to RetrievedChunk
+
         chunks = []
         for result in results:
             payload = result["payload"]
@@ -71,7 +78,7 @@ class RetrievalService:
                 section_title=payload.get("section_title"),
                 score=result["score"],
             ))
-        
+
         return chunks
 
     def build_context(
@@ -79,40 +86,30 @@ class RetrievalService:
         chunks: list[RetrievedChunk],
         max_tokens: int = 4000,
     ) -> str:
-        """
-        Build context string from retrieved chunks.
-        
-        Args:
-            chunks: Retrieved chunks
-            max_tokens: Maximum tokens for context (rough estimate)
-        
-        Returns:
-            Formatted context string
-        """
+        """Build context string from retrieved chunks."""
         if not chunks:
             return ""
-        
+
         context_parts = []
         estimated_tokens = 0
-        
+
         for i, chunk in enumerate(chunks):
-            # Format chunk with source info
             source_info = f"[Source: {chunk.document_filename}"
             if chunk.page_number:
                 source_info += f", Page {chunk.page_number}"
             source_info += "]"
-            
+
             chunk_text = f"{source_info}\n{chunk.content}"
-            
+
             # Rough token estimate (4 chars per token)
             chunk_tokens = len(chunk_text) // 4
-            
+
             if estimated_tokens + chunk_tokens > max_tokens:
                 break
-            
+
             context_parts.append(chunk_text)
             estimated_tokens += chunk_tokens
-        
+
         return "\n\n---\n\n".join(context_parts)
 
 

@@ -95,7 +95,7 @@ async def chat(
         messages = list(reversed(result.scalars().all()))
         history = [{"role": m.role, "content": m.content} for m in messages]
 
-    # Call chat service
+    # Call chat service (pass db for hybrid search)
     response_text, citations, blocks, tokens_input, tokens_output = await chat_service.chat(
         message=request.message,
         tenant_id=tenant_id,
@@ -103,6 +103,7 @@ async def chat(
         system_prompt=assistant.system_prompt,
         conversation_history=history,
         integrations=integrations_data or None,
+        db=db,
     )
 
     # Save user message
@@ -238,37 +239,40 @@ async def chat_stream(
             # Send conversation ID first (conversation now exists in DB)
             yield await format_sse("conversation_id", str(conversation_id))
 
-            async for event in chat_service.chat_stream(
-                message=request.message,
-                tenant_id=tenant_id,
-                collection_ids=collection_ids,
-                system_prompt=assistant.system_prompt,
-                conversation_history=history,
-                integrations=integrations_data or None,
-            ):
-                if event.event == "token":
-                    full_response += event.data
-                    yield await format_sse("token", event.data)
-                elif event.event == "block":
-                    blocks_for_db.append(event.data)
-                    yield await format_sse("block", json.dumps(event.data))
-                elif event.event == "citations":
-                    # Serialize to JSON-safe dicts (convert UUIDs to strings)
-                    citations_for_db = [
-                        c.model_dump(mode="json") if hasattr(c, 'model_dump')
-                        else {k: str(v) if isinstance(v, UUID) else v for k, v in c.items()} if isinstance(c, dict)
-                        else c
-                        for c in event.data
-                    ]
-                    yield await format_sse("citations", json.dumps(citations_for_db))
-                elif event.event == "done":
-                    tokens_input = event.data.get("tokens_input", 0)
-                    tokens_output = event.data.get("tokens_output", 0)
-                    yield await format_sse("done", json.dumps(event.data))
-                elif event.event == "error":
-                    yield await format_sse("error", event.data)
-                else:
-                    yield await format_sse(event.event, json.dumps(event.data) if isinstance(event.data, dict) else str(event.data))
+            # Use a dedicated session for hybrid retrieval (FTS keyword search)
+            async with async_session_maker() as retrieval_db:
+                async for event in chat_service.chat_stream(
+                    message=request.message,
+                    tenant_id=tenant_id,
+                    collection_ids=collection_ids,
+                    system_prompt=assistant.system_prompt,
+                    conversation_history=history,
+                    integrations=integrations_data or None,
+                    db=retrieval_db,
+                ):
+                    if event.event == "token":
+                        full_response += event.data
+                        yield await format_sse("token", event.data)
+                    elif event.event == "block":
+                        blocks_for_db.append(event.data)
+                        yield await format_sse("block", json.dumps(event.data))
+                    elif event.event == "citations":
+                        # Serialize to JSON-safe dicts (convert UUIDs to strings)
+                        citations_for_db = [
+                            c.model_dump(mode="json") if hasattr(c, 'model_dump')
+                            else {k: str(v) if isinstance(v, UUID) else v for k, v in c.items()} if isinstance(c, dict)
+                            else c
+                            for c in event.data
+                        ]
+                        yield await format_sse("citations", json.dumps(citations_for_db))
+                    elif event.event == "done":
+                        tokens_input = event.data.get("tokens_input", 0)
+                        tokens_output = event.data.get("tokens_output", 0)
+                        yield await format_sse("done", json.dumps(event.data))
+                    elif event.event == "error":
+                        yield await format_sse("error", event.data)
+                    else:
+                        yield await format_sse(event.event, json.dumps(event.data) if isinstance(event.data, dict) else str(event.data))
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Streaming error: {e}")

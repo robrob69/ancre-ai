@@ -35,8 +35,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
 
     # Embeddings
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dimensions: int = 1536
+    embedding_provider: str = "mistral"  # openai | mistral
+    embedding_model: str = "mistral-embed"
+    embedding_dimensions: int = 1024
 
     # LLM
     llm_model: str = "gpt-4o-mini"
@@ -75,6 +76,40 @@ class Settings(BaseSettings):
 
     # CopilotKit
     copilotkit_runtime_url: str = "http://localhost:4000"
+
+    # --- Mistral OCR ---
+    mistral_api_key: str = ""
+    mistral_ocr_model: str = "mistral-ocr-latest"
+    use_mistral_ocr: bool = True
+    ocr_only_for_pdf: bool = True
+    ocr_heuristic_min_text_chars: int = 500
+
+    # --- Hybrid retrieval ---
+    hybrid_keyword_topk: int = 40
+    hybrid_vector_topk: int = 40
+    hybrid_rrf_k: int = 60
+    postgres_fts_config: str = "simple"
+
+    # --- Rerank (remote) ---
+    rerank_enabled: bool = True
+    rerank_provider: str = "hf_endpoint"  # hf_endpoint | mistral
+    rerank_fallback_provider: str = "mistral"  # mistral | none
+
+    # HF Inference Endpoint (primary reranker)
+    hf_rerank_url: str = ""
+    hf_rerank_token: str = ""
+    rerank_timeout_seconds: int = 5
+    rerank_retry_max: int = 1
+
+    # Mistral LLM rerank (fallback)
+    rerank_mistral_model: str = "mistral-small-latest"
+    rerank_temperature: float = 0.0
+    rerank_mistral_timeout_seconds: int = 8
+
+    # Rerank behavior
+    rerank_max_candidates: int = 40
+    rerank_final_topn: int = 10
+    rerank_max_passage_chars: int = 1500
 
 
 @lru_cache

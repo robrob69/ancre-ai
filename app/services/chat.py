@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 from openai import AsyncOpenAI
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import get_settings
 from app.schemas.chat import ChatStreamEvent, Citation
 from app.services.retrieval import RetrievalService, RetrievedChunk
@@ -156,6 +158,7 @@ Tu disposes de 4 outils pour afficher des blocs structurés dans le chat :
 Garde le texte concis et complémentaire ; mets la structure dans les blocs.
 Ne pas inventer de données manquantes ; si une valeur n'est pas disponible, indique "N/A".
 Tu peux combiner texte et plusieurs blocs dans une même réponse.
+IMPORTANT : N'utilise JAMAIS de syntaxe markdown (**, *, #, etc.) dans les arguments des outils. Les blocs sont rendus en texte brut, pas en markdown.
 """
 
 
@@ -183,7 +186,10 @@ class ChatService:
     """Service for RAG-powered chat with streaming."""
 
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.client = AsyncOpenAI(
+            api_key=settings.mistral_api_key,
+            base_url="https://api.mistral.ai/v1",
+        )
         self.retrieval = RetrievalService()
         self.model = settings.llm_model
         self.max_tokens = settings.llm_max_tokens
@@ -240,14 +246,16 @@ Remember to cite your sources (document name and page number) when using informa
         citations = []
 
         for chunk in chunks[:5]:  # Top 5 most relevant
-            if chunk.score > 0.5:  # High confidence chunks
+            # Use rerank_score or fused_score if available, otherwise original score
+            effective_score = chunk.rerank_score or chunk.fused_score or chunk.score
+            if effective_score > 0.0:
                 citations.append(Citation(
                     chunk_id=UUID(chunk.chunk_id),
                     document_id=UUID(chunk.document_id),
                     document_filename=chunk.document_filename,
                     page_number=chunk.page_number,
                     excerpt=chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
-                    score=chunk.score,
+                    score=effective_score,
                 ))
 
         return citations
@@ -284,6 +292,7 @@ Remember to cite your sources (document name and page number) when using informa
         system_prompt: str | None = None,
         conversation_history: list[dict] | None = None,
         integrations: list[dict] | None = None,
+        db: AsyncSession | None = None,
     ) -> tuple[str, list[Citation], list[dict], int, int]:
         """
         Non-streaming chat with tool-calling loop.
@@ -291,13 +300,14 @@ Remember to cite your sources (document name and page number) when using informa
         Returns:
             Tuple of (response, citations, blocks, tokens_input, tokens_output)
         """
-        # Retrieve relevant chunks
+        # Retrieve relevant chunks (hybrid if db provided, vector-only otherwise)
         chunks = []
         if collection_ids:
             chunks = await self.retrieval.retrieve(
                 query=message,
                 tenant_id=tenant_id,
                 collection_ids=collection_ids,
+                db=db,
             )
 
         # Build context
@@ -327,7 +337,7 @@ Remember to cite your sources (document name and page number) when using informa
                 messages=messages,
                 max_tokens=self.max_tokens,
                 tools=all_tools if all_tools else None,
-                parallel_tool_calls=True,
+                # parallel_tool_calls=True,  # Not supported by Mistral API
             )
 
             total_input += response.usage.prompt_tokens if response.usage else 0
@@ -427,6 +437,7 @@ Remember to cite your sources (document name and page number) when using informa
         system_prompt: str | None = None,
         conversation_history: list[dict] | None = None,
         integrations: list[dict] | None = None,
+        db: AsyncSession | None = None,
     ) -> AsyncGenerator[ChatStreamEvent, None]:
         """
         Streaming chat with SSE events and tool-calling loop.
@@ -434,13 +445,14 @@ Remember to cite your sources (document name and page number) when using informa
         Yields:
             ChatStreamEvent objects for SSE
         """
-        # Retrieve relevant chunks
+        # Retrieve relevant chunks (hybrid if db provided, vector-only otherwise)
         chunks = []
         if collection_ids:
             chunks = await self.retrieval.retrieve(
                 query=message,
                 tenant_id=tenant_id,
                 collection_ids=collection_ids,
+                db=db,
             )
 
         # Build context
@@ -481,9 +493,9 @@ Remember to cite your sources (document name and page number) when using informa
                     messages=messages,
                     max_tokens=self.max_tokens,
                     tools=all_tools if all_tools else None,
-                    parallel_tool_calls=True,
+                    # parallel_tool_calls=True,  # Not supported by Mistral API
                     stream=True,
-                    stream_options={"include_usage": True},
+                    # stream_options={"include_usage": True},  # Not supported by Mistral API
                 )
 
                 streamed_content = ""
