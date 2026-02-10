@@ -35,7 +35,8 @@ class Tenant(Base):
     max_ingestion_tokens: Mapped[int] = mapped_column(default=1_000_000)  # per month
     max_chat_tokens: Mapped[int] = mapped_column(default=500_000)  # per month
     max_storage_bytes: Mapped[int] = mapped_column(default=1_073_741_824)  # 1GB
-    
+    max_transcription_seconds: Mapped[int] = mapped_column(default=120)  # free: 2min/month
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

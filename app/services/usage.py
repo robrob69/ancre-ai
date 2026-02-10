@@ -84,15 +84,19 @@ class UsageService:
             "ingestion_tokens_used": usage.ingestion_tokens,
             "chat_tokens_used": chat_tokens_used,
             "storage_bytes_used": usage.storage_bytes,
+            "transcription_seconds_used": usage.transcription_seconds,
             "max_ingestion_tokens": tenant.max_ingestion_tokens,
             "max_chat_tokens": tenant.max_chat_tokens,
             "max_storage_bytes": tenant.max_storage_bytes,
+            "max_transcription_seconds": tenant.max_transcription_seconds,
             "ingestion_percent": (usage.ingestion_tokens / tenant.max_ingestion_tokens * 100)
                 if tenant.max_ingestion_tokens > 0 else 0,
             "chat_percent": (chat_tokens_used / tenant.max_chat_tokens * 100)
                 if tenant.max_chat_tokens > 0 else 0,
             "storage_percent": (usage.storage_bytes / tenant.max_storage_bytes * 100)
                 if tenant.max_storage_bytes > 0 else 0,
+            "transcription_percent": (usage.transcription_seconds / tenant.max_transcription_seconds * 100)
+                if tenant.max_transcription_seconds > 0 else 0,
             "documents_count": usage.documents_count,
             "messages_count": usage.messages_count,
         }
@@ -198,6 +202,45 @@ class UsageService:
         usage.chat_input_tokens += input_tokens
         usage.chat_output_tokens += output_tokens
         usage.messages_count += 1
+
+    async def check_transcription_quota(
+        self,
+        db: AsyncSession,
+        tenant_id: UUID,
+        estimated_seconds: int = 0,
+    ) -> tuple[bool, str | None]:
+        """
+        Check if tenant can transcribe more audio.
+
+        Returns:
+            Tuple of (allowed, error_message)
+        """
+        result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+        tenant = result.scalar_one_or_none()
+
+        if not tenant:
+            return False, "Tenant not found"
+
+        usage = await self.get_or_create_usage(db, tenant_id)
+
+        if usage.transcription_seconds + estimated_seconds > tenant.max_transcription_seconds:
+            return False, (
+                f"Quota de transcription atteint "
+                f"({usage.transcription_seconds}s/{tenant.max_transcription_seconds}s). "
+                f"Passez en Pro pour plus de minutes."
+            )
+
+        return True, None
+
+    async def record_transcription(
+        self,
+        db: AsyncSession,
+        tenant_id: UUID,
+        seconds: int,
+    ) -> None:
+        """Record transcription usage."""
+        usage = await self.get_or_create_usage(db, tenant_id)
+        usage.transcription_seconds += seconds
 
     async def reduce_storage(
         self,

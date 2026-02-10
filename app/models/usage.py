@@ -41,7 +41,8 @@ class Usage(Base):
     storage_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     documents_count: Mapped[int] = mapped_column(default=0)
     messages_count: Mapped[int] = mapped_column(default=0)
-    
+    transcription_seconds: Mapped[int] = mapped_column(default=0)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

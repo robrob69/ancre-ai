@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1 import tenants, assistants, collections, documents, chat, usage, billing, webhooks
 from app.api.v1 import copilotkit
 from app.api.v1 import integrations
+from app.api.v1 import dictation
 
 api_router = APIRouter()
 
@@ -18,3 +19,4 @@ api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 api_router.include_router(copilotkit.router, prefix="/copilotkit", tags=["copilotkit"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["integrations"])
+api_router.include_router(dictation.router, prefix="/dictation", tags=["dictation"])

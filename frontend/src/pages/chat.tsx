@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import {
@@ -11,6 +11,8 @@ import {
   ChevronDown,
   ChevronUp,
   Send,
+  Mic,
+  Square,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -30,16 +32,52 @@ import { cn } from "@/lib/utils"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { BlockRenderer } from "@/components/blocks/BlockRenderer"
+import { createDictationAdapter } from "@/lib/dictation"
 
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
+  useComposerRuntime,
+  useComposer,
   ComposerPrimitive,
 } from "@assistant-ui/react"
 import type { ThreadMessageLike, AppendMessage } from "@assistant-ui/react"
 
 interface LocalMessage extends Message {
   isStreaming?: boolean
+}
+
+/** Single toggle button for dictation — Gemini-style. */
+function DictationToggle() {
+  const composerRuntime = useComposerRuntime()
+  const isDictating = useComposer((s) => s.dictation != null)
+
+  const handleClick = () => {
+    if (isDictating) {
+      composerRuntime.stopDictation()
+    } else {
+      composerRuntime.startDictation()
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={cn(
+        "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+        isDictating
+          ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
+    >
+      {isDictating ? (
+        <Square className="h-3.5 w-3.5 fill-current" />
+      ) : (
+        <Mic className="h-4 w-4" />
+      )}
+    </button>
+  )
 }
 
 export function ChatPage() {
@@ -196,12 +234,20 @@ export function ChatPage() {
     []
   )
 
+  const dictationAdapter = useMemo(
+    () => createDictationAdapter({ language: "fr" }),
+    []
+  )
+
   const runtime = useExternalStoreRuntime({
     messages,
     isRunning,
     onNew,
     onCancel,
     convertMessage,
+    adapters: {
+      dictation: dictationAdapter,
+    },
   })
 
   const handleNewConversation = () => {
@@ -481,17 +527,19 @@ export function ChatPage() {
             <div className="mx-auto max-w-3xl">
               <ComposerPrimitive.Root className="relative flex items-end rounded-md border bg-background">
                 <ComposerPrimitive.Input
-                  placeholder="Écrivez votre message..."
-                  className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-3 pr-12 text-sm focus:outline-none focus:ring-0"
+                  placeholder="Écrivez ou dictez votre message..."
+                  className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-3 pr-20 text-sm focus:outline-none focus:ring-0"
                   autoFocus
                 />
-                <ComposerPrimitive.Send className="absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                  <Send className="h-4 w-4" />
-                </ComposerPrimitive.Send>
+                <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                  <DictationToggle />
+                  <ComposerPrimitive.Send className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                    <Send className="h-4 w-4" />
+                  </ComposerPrimitive.Send>
+                </div>
               </ComposerPrimitive.Root>
               <p className="mt-2 text-center text-xs text-muted-foreground">
-                Appuyez sur Entrée pour envoyer, Maj+Entrée pour un saut de
-                ligne
+                Entrée pour envoyer, Maj+Entrée pour saut de ligne
               </p>
             </div>
           </div>
