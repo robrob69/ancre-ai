@@ -13,6 +13,11 @@ import {
   Send,
   Mic,
   Square,
+  Copy,
+  Check,
+  Anchor,
+  Pencil,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -90,6 +95,9 @@ export function ChatPage() {
   const [expandedCitations, setExpandedCitations] = useState<Set<string>>(
     new Set()
   )
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editContent, setEditContent] = useState("")
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortFnRef = useRef<(() => void) | null>(null)
@@ -293,6 +301,128 @@ export function ChatPage() {
     })
   }
 
+  const handleCopy = useCallback(
+    (messageId: string, content: string) => {
+      navigator.clipboard.writeText(content)
+      setCopiedMessageId(messageId)
+      setTimeout(() => setCopiedMessageId(null), 2000)
+    },
+    []
+  )
+
+  const lastUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg?.role === "user") return msg.id
+    }
+    return null
+  }, [messages])
+
+  const handleStartEdit = useCallback(
+    (messageId: string, content: string) => {
+      setEditingMessageId(messageId)
+      setEditContent(content)
+    },
+    []
+  )
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessageId(null)
+    setEditContent("")
+  }, [])
+
+  const handleConfirmEdit = useCallback(() => {
+    if (!editingMessageId || !editContent.trim() || !id) return
+
+    const msgIndex = messages.findIndex((m) => m.id === editingMessageId)
+    if (msgIndex === -1) return
+
+    // Keep messages up to (not including) the edited user message
+    const kept = messages.slice(0, msgIndex)
+    setMessages(kept)
+    setEditingMessageId(null)
+    setEditContent("")
+
+    // Re-send with edited text via the runtime
+    const assistantMessageId = (Date.now() + 1).toString()
+    const userMsg: LocalMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      content: editContent.trim(),
+      created_at: new Date().toISOString(),
+    }
+    const assistantMsg: LocalMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: "",
+      isStreaming: true,
+      created_at: new Date().toISOString(),
+    }
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg])
+    setIsRunning(true)
+
+    abortFnRef.current = chatApi.stream(
+      id,
+      {
+        message: editContent.trim(),
+        conversation_id: conversationIdRef.current || undefined,
+      },
+      (token) => {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: msg.content + token }
+              : msg
+          )
+        )
+      },
+      (response) => {
+        setConversationId(response.conversationId)
+        conversationIdRef.current = response.conversationId
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, isStreaming: false, citations: response.citations }
+              : msg
+          )
+        )
+        setIsRunning(false)
+        refetchConversations()
+      },
+      (error) => {
+        console.error("Chat error:", error)
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? {
+                  ...msg,
+                  content:
+                    "Désolé, une erreur s'est produite. Veuillez réessayer.",
+                  isStreaming: false,
+                }
+              : msg
+          )
+        )
+        setIsRunning(false)
+      },
+      (newConversationId) => {
+        setConversationId(newConversationId)
+        conversationIdRef.current = newConversationId
+        refetchConversations()
+      },
+      (block: Block) => {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, blocks: [...(msg.blocks || []), block] }
+              : msg
+          )
+        )
+      }
+    )
+  }, [editingMessageId, editContent, id, messages, refetchConversations])
+
   if (isLoadingAssistant) {
     return (
       <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
@@ -432,7 +562,8 @@ export function ChatPage() {
               )}
 
               {messages.map((message) => (
-                <div key={message.id} className="flex gap-4">
+                <div key={message.id} className="group flex gap-4">
+                  {/* Avatar */}
                   <div
                     className={cn(
                       "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
@@ -444,9 +575,19 @@ export function ChatPage() {
                     {message.role === "user" ? (
                       <User className="h-4 w-4" />
                     ) : (
-                      <Bot className="h-4 w-4" />
+                      <Anchor
+                        className={cn(
+                          "h-4 w-4",
+                          message.isStreaming &&
+                            (message.content
+                              ? "animate-spin-anchor-fast"
+                              : "animate-spin-anchor")
+                        )}
+                      />
                     )}
                   </div>
+
+                  {/* Content */}
                   <div className="flex-1 min-w-0 space-y-2">
                     <div className="prose prose-sm max-w-none break-words dark:prose-invert">
                       {message.role === "assistant" ? (
@@ -454,10 +595,47 @@ export function ChatPage() {
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {message.content}
                           </ReactMarkdown>
-                          {message.isStreaming && (
+                          {message.isStreaming && !message.content && (
                             <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-primary" />
                           )}
                         </>
+                      ) : editingMessageId === message.id ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                            className="w-full rounded-md border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                            rows={3}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault()
+                                handleConfirmEdit()
+                              }
+                              if (e.key === "Escape") {
+                                handleCancelEdit()
+                              }
+                            }}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={handleConfirmEdit}
+                              disabled={!editContent.trim()}
+                            >
+                              <Send className="mr-1 h-3 w-3" />
+                              Renvoyer
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={handleCancelEdit}
+                            >
+                              <X className="mr-1 h-3 w-3" />
+                              Annuler
+                            </Button>
+                          </div>
+                        </div>
                       ) : (
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       )}
@@ -516,6 +694,40 @@ export function ChatPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Action buttons (copy + edit) */}
+                  {editingMessageId !== message.id && (
+                    <div className="flex shrink-0 items-start gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopy(message.id, message.content)
+                        }
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                        title="Copier"
+                      >
+                        {copiedMessageId === message.id ? (
+                          <Check className="h-3.5 w-3.5 text-green-500" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      {message.role === "user" &&
+                        message.id === lastUserMessageId &&
+                        !isRunning && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleStartEdit(message.id, message.content)
+                            }
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                            title="Modifier et renvoyer"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                    </div>
+                  )}
                 </div>
               ))}
               <div ref={messagesEndRef} />
