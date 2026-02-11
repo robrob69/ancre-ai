@@ -1,375 +1,184 @@
-/**
- * Integrations page - Manage CRM/ERP OAuth connections via Nango.
- *
- * Each "Connect" button initiates an OAuth flow through Nango.
- * The connection is scoped to the current tenant.
- */
-
-import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "react-router-dom"
 import {
-  Loader2,
   Plug,
-  Trash2,
+  Settings2,
   CheckCircle2,
   AlertCircle,
-  Clock,
+  ChevronRight,
   ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { useToast } from "@/hooks/use-toast"
-import { integrationsApi } from "@/api/integrations"
-import type { NangoConnection } from "@/api/integrations"
 
-/** Providers available for connection (extend this list as needed). */
-const PROVIDERS = [
+// Connector data per assistant (mirrors assistant-page.tsx)
+const assistantsConnectors = [
   {
-    key: "hubspot",
-    name: "HubSpot",
-    description: "CRM - Contacts, deals, companies",
-    color: "bg-orange-500",
+    slug: "trouver-info",
+    name: "Trouver l'info",
+    emoji: "\u{1F50D}",
+    role: "Recherche rapide dans vos sources",
+    connectors: [
+      { name: "Google Drive", status: "connected", provider: "google-drive", description: "Fichiers, dossiers, documents" },
+      { name: "Notion", status: "disconnected", provider: "notion", description: "Pages, bases de données" },
+    ],
   },
   {
-    key: "salesforce",
-    name: "Salesforce",
-    description: "CRM - Full Salesforce data",
-    color: "bg-blue-500",
+    slug: "commercial-dossiers",
+    name: "Commercial & Dossiers",
+    emoji: "\u{1F4BC}",
+    role: "Devis, propositions, clients",
+    connectors: [
+      { name: "Salesforce", status: "disconnected", provider: "salesforce", description: "CRM - Contacts, deals" },
+    ],
   },
   {
-    key: "pipedrive",
-    name: "Pipedrive",
-    description: "CRM - Deals, contacts, activités",
-    color: "bg-green-600",
+    slug: "emails-reponses",
+    name: "Emails & Réponses",
+    emoji: "\u{2709}\u{FE0F}",
+    role: "Emails types, relances, réponses",
+    connectors: [
+      { name: "Gmail", status: "connected", provider: "gmail", description: "Recherche et envoi d'emails" },
+      { name: "Outlook", status: "disconnected", provider: "outlook", description: "Microsoft Outlook / Office 365" },
+    ],
   },
-  {
-    key: "gmail",
-    name: "Gmail",
-    description: "Email - Recherche et envoi d'emails",
-    color: "bg-red-500",
-  },
-  {
-    key: "google-drive",
-    name: "Google Drive",
-    description: "Stockage - Fichiers, dossiers, documents",
-    color: "bg-yellow-600",
-  },
-  {
-    key: "outlook",
-    name: "Outlook",
-    description: "Email - Microsoft Outlook / Office 365",
-    color: "bg-blue-600",
-  },
-  {
-    key: "shopify",
-    name: "Shopify",
-    description: "E-commerce - Commandes, produits, clients",
-    color: "bg-green-500",
-  },
-  {
-    key: "stripe",
-    name: "Stripe",
-    description: "Paiements - Clients, factures, abonnements",
-    color: "bg-purple-500",
-  },
-  {
-    key: "notion",
-    name: "Notion",
-    description: "Productivité - Pages, bases de données",
-    color: "bg-gray-800",
-  },
-  {
-    key: "slack",
-    name: "Slack",
-    description: "Messagerie - Canaux, messages, fichiers",
-    color: "bg-purple-600",
-  },
-  {
-    key: "nocrm",
-    name: "noCRM.io",
-    description: "CRM - Leads, prospection",
-    color: "bg-teal-500",
-  },
-  {
-    key: "lemlist",
-    name: "Lemlist",
-    description: "Outreach - Campagnes, séquences email",
-    color: "bg-indigo-500",
-  },
-  {
-    key: "fireflies",
-    name: "Fireflies",
-    description: "Meetings - Transcriptions, résumés",
-    color: "bg-yellow-500",
-  },
-] as const
+]
 
-function statusBadge(status: string) {
-  switch (status) {
-    case "connected":
-      return (
-        <Badge variant="default" className="bg-green-600">
-          <CheckCircle2 className="mr-1 h-3 w-3" />
-          Connecté
-        </Badge>
-      )
-    case "pending":
-      return (
-        <Badge variant="secondary">
-          <Clock className="mr-1 h-3 w-3" />
-          En attente
-        </Badge>
-      )
-    default:
-      return (
-        <Badge variant="destructive">
-          <AlertCircle className="mr-1 h-3 w-3" />
-          Erreur
-        </Badge>
-      )
-  }
-}
+// All available providers
+const availableProviders = [
+  { key: "hubspot", name: "HubSpot", description: "CRM - Contacts, deals, companies", color: "bg-orange-500" },
+  { key: "salesforce", name: "Salesforce", description: "CRM - Full Salesforce data", color: "bg-blue-500" },
+  { key: "pipedrive", name: "Pipedrive", description: "CRM - Deals, contacts, activités", color: "bg-green-600" },
+  { key: "gmail", name: "Gmail", description: "Email - Recherche et envoi", color: "bg-red-500" },
+  { key: "google-drive", name: "Google Drive", description: "Fichiers, dossiers, documents", color: "bg-yellow-600" },
+  { key: "outlook", name: "Outlook", description: "Microsoft Outlook / Office 365", color: "bg-blue-600" },
+  { key: "notion", name: "Notion", description: "Pages, bases de données", color: "bg-gray-800" },
+  { key: "slack", name: "Slack", description: "Canaux, messages, fichiers", color: "bg-purple-600" },
+  { key: "shopify", name: "Shopify", description: "Commandes, produits, clients", color: "bg-green-500" },
+  { key: "stripe", name: "Stripe", description: "Clients, factures, abonnements", color: "bg-purple-500" },
+]
 
 export function IntegrationsPage() {
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
-  const [connectingProvider, setConnectingProvider] = useState<string | null>(null)
+  const navigate = useNavigate()
 
-  // Fetch existing connections
-  const { data: connections = [], isLoading } = useQuery({
-    queryKey: ["nango-connections"],
-    queryFn: integrationsApi.listConnections,
-  })
-
-  // Connect mutation
-  const connectMutation = useMutation({
-    mutationFn: (provider: string) => integrationsApi.connect(provider),
-    onSuccess: (data) => {
-      // Open Nango OAuth flow in a popup
-      if (data.connect_url) {
-        const popup = window.open(
-          data.connect_url,
-          "nango-oauth",
-          "width=600,height=700,scrollbars=yes"
-        )
-
-        // Poll for popup close, then refresh connections
-        if (popup) {
-          const interval = setInterval(() => {
-            if (popup.closed) {
-              clearInterval(interval)
-              // Notify backend that callback may have happened
-              integrationsApi
-                .callback(data.provider, data.connection_id)
-                .catch(() => {
-                  // Callback may fail if OAuth wasn't completed - that's OK
-                })
-              queryClient.invalidateQueries({ queryKey: ["nango-connections"] })
-              setConnectingProvider(null)
-            }
-          }, 500)
-        }
-      }
-
-      toast({
-        title: "Connexion initiée",
-        description: `Popup OAuth ouverte pour ${data.provider}. Complétez l'autorisation.`,
-      })
-    },
-    onError: (error: Error) => {
-      setConnectingProvider(null)
-      toast({
-        title: "Erreur",
-        description: error.message || "Impossible d'initier la connexion",
-        variant: "destructive",
-      })
-    },
-  })
-
-  // Disconnect mutation
-  const disconnectMutation = useMutation({
-    mutationFn: (provider: string) => integrationsApi.deleteConnection(provider),
-    onSuccess: (_data, provider) => {
-      queryClient.invalidateQueries({ queryKey: ["nango-connections"] })
-      toast({
-        title: "Déconnecté",
-        description: `Connexion ${provider} supprimée.`,
-      })
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Erreur",
-        description: error.message || "Impossible de supprimer la connexion",
-        variant: "destructive",
-      })
-    },
-  })
-
-  const getConnectionForProvider = (
-    provider: string
-  ): NangoConnection | undefined => {
-    return connections.find((c) => c.provider === provider)
-  }
-
-  const handleConnect = (provider: string) => {
-    setConnectingProvider(provider)
-    connectMutation.mutate(provider)
-  }
+  const totalConnected = assistantsConnectors.reduce(
+    (sum, a) => sum + a.connectors.filter((c) => c.status === "connected").length,
+    0
+  )
+  const totalConnectors = assistantsConnectors.reduce((sum, a) => sum + a.connectors.length, 0)
 
   return (
-    <div className="container max-w-6xl py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Connecteurs</h1>
-        <p className="mt-2 text-muted-foreground">
-          Connectez vos outils pour donner à vos assistants l'accès à vos
-          données externes en temps réel.
-        </p>
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-2 sm:gap-3 h-auto min-h-[3.5rem] px-3 sm:px-5 py-2 border-b border-border bg-surface-elevated shrink-0 flex-wrap">
+        <Plug className="h-4 w-4 text-gold shrink-0 hidden sm:block" />
+        <h1 className="font-display font-semibold text-foreground text-sm sm:text-base">Connecteurs</h1>
+        <span className="text-xs text-muted-foreground hidden sm:inline">
+          {totalConnected} connecté{totalConnected > 1 ? "s" : ""} sur {totalConnectors} · {assistantsConnectors.length} assistants
+        </span>
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {PROVIDERS.map((provider) => {
-            const connection = getConnectionForProvider(provider.key)
-            const isConnecting = connectingProvider === provider.key
+      <div className="flex-1 overflow-auto bg-surface p-3 sm:p-5">
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* Info banner */}
+          <div className="flex items-center gap-3 p-4 bg-gold-light border border-gold/20 rounded-lg">
+            <Plug className="h-5 w-5 text-gold shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gold-foreground">
+                Les connecteurs sont rattachés à chaque assistant
+              </p>
+              <p className="text-xs text-gold-foreground/70 mt-0.5">
+                Gérez les connexions OAuth depuis l'onglet "Configurer" de chaque assistant.
+              </p>
+            </div>
+          </div>
 
-            return (
-              <Card key={provider.key} className="relative">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`flex h-10 w-10 items-center justify-center rounded-lg ${provider.color} text-white font-bold text-sm`}
-                      >
-                        {provider.name.slice(0, 2).toUpperCase()}
+          {/* Per-assistant connectors */}
+          {assistantsConnectors.map((assistant) => (
+            <div
+              key={assistant.slug}
+              className="bg-card border border-border rounded-lg shadow-soft overflow-hidden"
+            >
+              {/* Assistant header */}
+              <div className="flex items-center gap-3 px-4 sm:px-5 py-4 border-b border-border">
+                <span className="text-xl">{assistant.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-foreground">{assistant.name}</div>
+                  <div className="text-xs text-muted-foreground">{assistant.role}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={assistant.connectors.some((c) => c.status === "connected") ? "success" : "status"}>
+                    {assistant.connectors.filter((c) => c.status === "connected").length} / {assistant.connectors.length} actif{assistant.connectors.filter((c) => c.status === "connected").length > 1 ? "s" : ""}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => navigate(`/app/assistant/${assistant.slug}`)}
+                  >
+                    <Settings2 className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Configurer</span>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Connectors list */}
+              <div className="divide-y divide-border">
+                {assistant.connectors.map((conn, i) => {
+                  const provider = availableProviders.find((p) => p.key === conn.provider)
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0 ${provider?.color || "bg-muted"}`}>
+                        {conn.name.slice(0, 2).toUpperCase()}
                       </div>
-                      <div>
-                        <CardTitle className="text-lg">
-                          {provider.name}
-                        </CardTitle>
-                        <CardDescription>{provider.description}</CardDescription>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-foreground">{conn.name}</div>
+                        <div className="text-xs text-muted-foreground">{conn.description}</div>
                       </div>
+                      {conn.status === "connected" ? (
+                        <Badge variant="success" className="gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Connecté
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          Non connecté
+                        </Badge>
+                      )}
                     </div>
-                    {connection && statusBadge(connection.status)}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-2">
-                    {connection && connection.status === "connected" ? (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Déconnecter
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Déconnecter {provider.name} ?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Cette action supprimera la connexion OAuth.
-                              Vous devrez vous reconnecter pour accéder aux
-                              données de {provider.name}.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Annuler</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() =>
-                                disconnectMutation.mutate(provider.key)
-                              }
-                            >
-                              Déconnecter
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    ) : (
-                      <Button
-                        size="sm"
-                        onClick={() => handleConnect(provider.key)}
-                        disabled={isConnecting}
-                      >
-                        {isConnecting ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plug className="mr-2 h-4 w-4" />
-                        )}
-                        Connecter
-                      </Button>
-                    )}
-                    {connection && (
-                      <span className="text-xs text-muted-foreground">
-                        Depuis le{" "}
-                        {new Date(connection.created_at).toLocaleDateString(
-                          "fr-FR"
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
+                  )
+                })}
+              </div>
+            </div>
+          ))}
 
-      {/* Info section */}
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle className="text-base">Comment ça marche ?</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground space-y-2">
-          <p>
-            Les intégrations utilisent <strong>Nango</strong> pour gérer les
-            connexions OAuth de manière sécurisée.
-          </p>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>
-              Cliquez "Connecter" pour ouvrir le popup d'autorisation OAuth
-            </li>
-            <li>
-              Autorisez l'accès dans le popup du fournisseur
-            </li>
-            <li>
-              Les tokens sont gérés par Nango - jamais stockés dans notre base
-            </li>
-            <li>
-              Chaque connexion est isolée par tenant (multi-tenant)
-            </li>
-          </ul>
-          <p className="flex items-center gap-1 pt-2">
-            <ExternalLink className="h-3 w-3" />
-            <span>
-              Pour configurer les providers, consultez la documentation dans{" "}
-              <code>docs/integrations/nango.md</code>
-            </span>
-          </p>
-        </CardContent>
-      </Card>
+          {/* Available providers */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              Connecteurs disponibles
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {availableProviders.map((provider) => (
+                <div
+                  key={provider.key}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-card border border-border hover:shadow-soft hover:border-gold/20 transition-all"
+                >
+                  <div className={`w-7 h-7 rounded-md flex items-center justify-center text-white text-[10px] font-bold shrink-0 ${provider.color}`}>
+                    {provider.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium text-foreground truncate">{provider.name}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">{provider.description}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

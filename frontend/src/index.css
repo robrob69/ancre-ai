@@ -24,6 +24,32 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
+
+    /* Gold accent */
+    --gold: 38 92% 50%;
+    --gold-light: 43 96% 96%;
+    --gold-foreground: 26 83% 14%;
+
+    /* Surface */
+    --surface: 220 14% 96%;
+    --surface-elevated: 0 0% 100%;
+
+    /* Success / Info */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    /* Sidebar */
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 221 83% 53%;
+    --sidebar-muted: 215 20% 65%;
   }
 
   .dark {
@@ -46,6 +72,32 @@
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 48%;
+
+    /* Gold accent (dark) */
+    --gold: 38 92% 50%;
+    --gold-light: 38 30% 15%;
+    --gold-foreground: 43 96% 90%;
+
+    /* Surface (dark) */
+    --surface: 222 47% 8%;
+    --surface-elevated: 222 47% 11%;
+
+    /* Success / Info (dark) */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    /* Sidebar (dark) */
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 222 47% 6%;
+    --sidebar-accent: 217 33% 12%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 12%;
+    --sidebar-ring: 221 83% 53%;
+    --sidebar-muted: 215 20% 55%;
   }
 }
 
@@ -55,5 +107,17 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .shadow-soft {
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  }
+  .shadow-elevated {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  }
+  .bg-gradient-gold {
+    background: linear-gradient(135deg, hsl(var(--gold)) 0%, hsl(38 85% 58%) 100%);
   }
 }
