@@ -7,6 +7,7 @@ import {
   CreditCard,
   Bot,
   FolderOpen,
+  FileEdit,
   Plug,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils"
 const APP_NAV_ITEMS = [
   { to: "/app/assistants", label: "Assistants", icon: Bot },
   { to: "/app/collections", label: "Collections", icon: FolderOpen },
+  { to: "/app/documents", label: "Documents", icon: FileEdit },
   { to: "/app/integrations", label: "Connecteurs", icon: Plug },
 ] as const
 

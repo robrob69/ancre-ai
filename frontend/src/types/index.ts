@@ -132,3 +132,128 @@ export interface ApiError {
   detail: string
   status_code?: number
 }
+
+// ── Workspace Documents ──
+
+export type DocBlockKind =
+  | "rich_text"
+  | "line_items"
+  | "clause"
+  | "terms"
+  | "signature"
+  | "attachments"
+  | "variables"
+
+export type WorkspaceDocStatus = "draft" | "review" | "final" | "archived"
+
+export interface LineItemData {
+  id: string
+  description: string
+  quantity: number
+  unit: string
+  unit_price: number
+  tax_rate: number
+  total: number
+  meta?: Record<string, unknown>
+}
+
+export interface DocBlock {
+  type: DocBlockKind
+  id: string
+  label?: string | null
+  locked?: boolean
+  // rich_text / clause / terms
+  content?: Record<string, unknown>
+  clause_ref?: string
+  // line_items
+  items?: LineItemData[]
+  columns?: string[]
+  currency?: string
+  // signature
+  parties?: Record<string, unknown>[]
+  // attachments
+  files?: Record<string, unknown>[]
+  // variables
+  variables?: Record<string, unknown>
+}
+
+export interface DocSource {
+  chunk_id: string
+  document_id: string
+  document_filename: string
+  page_number: number | null
+  excerpt: string
+  score: number
+}
+
+export interface DocMeta {
+  author?: string | null
+  client?: string | null
+  project?: string | null
+  reference?: string | null
+  date?: string | null
+  tags: string[]
+  custom: Record<string, unknown>
+}
+
+export interface DocModel {
+  version: number
+  meta: DocMeta
+  blocks: DocBlock[]
+  variables: Record<string, unknown>
+  sources: DocSource[]
+}
+
+export interface WorkspaceDocument {
+  id: string
+  tenant_id: string
+  assistant_id: string | null
+  title: string
+  doc_type: string
+  status: WorkspaceDocStatus
+  content_json: DocModel
+  version: number
+  last_exported_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkspaceDocumentListItem {
+  id: string
+  tenant_id: string
+  title: string
+  doc_type: string
+  status: WorkspaceDocStatus
+  assistant_id: string | null
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkspaceDocumentCreate {
+  title?: string
+  doc_type?: string
+  assistant_id?: string
+  content_json?: DocModel
+  template_id?: string
+}
+
+export interface WorkspaceDocumentUpdate {
+  title?: string
+  doc_type?: string
+  assistant_id?: string
+  status?: string
+  content_json?: DocModel
+}
+
+export interface DocPatch {
+  op: string
+  block_id?: string | null
+  value: Record<string, unknown>
+}
+
+export interface AiActionResponse {
+  patches: DocPatch[]
+  sources: DocSource[]
+  message: string
+}

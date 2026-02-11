@@ -17,6 +17,8 @@ import { CGVPage } from "@/pages/cgv"
 import { AssistantsPage } from "@/pages/assistants"
 import { ChatPage } from "@/pages/chat"
 import { CollectionsPage } from "@/pages/collections"
+import { DocumentsPage } from "@/pages/documents"
+import { DocumentEditorPage } from "@/pages/document-editor"
 import { ProfilePage } from "@/pages/profile"
 import { BillingPage } from "@/pages/billing"
 import { IntegrationsPage } from "@/pages/integrations"
@@ -69,6 +71,8 @@ function App() {
           <Route path="/app/assistants" element={<AssistantsPage />} />
           <Route path="/app/assistants/:id" element={<ChatPage />} />
           <Route path="/app/collections" element={<CollectionsPage />} />
+          <Route path="/app/documents" element={<DocumentsPage />} />
+          <Route path="/app/documents/:id" element={<DocumentEditorPage />} />
           <Route path="/app/profile" element={<ProfilePage />} />
           <Route path="/app/billing" element={<BillingPage />} />
           <Route path="/app/integrations" element={<IntegrationsPage />} />

@@ -12,6 +12,8 @@ from app.models.user import User
 from app.models.subscription import Subscription, SubscriptionPlan, SubscriptionStatus
 from app.models.daily_usage import DailyUsage
 from app.integrations.nango.models import NangoConnection, assistant_integrations
+from app.models.workspace_document import WorkspaceDocument, WorkspaceDocStatus
+from app.models.document_template import DocumentTemplate
 
 __all__ = [
     "Tenant",
@@ -30,4 +32,7 @@ __all__ = [
     "DailyUsage",
     "NangoConnection",
     "assistant_integrations",
+    "WorkspaceDocument",
+    "WorkspaceDocStatus",
+    "DocumentTemplate",
 ]
