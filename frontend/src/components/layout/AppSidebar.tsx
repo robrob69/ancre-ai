@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -13,10 +14,13 @@ import {
   CreditCard,
   Bot,
   Loader2,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { assistantsApi } from "@/api/assistants";
+import { billingApi } from "@/api/billing";
+import { AssistantModal } from "@/components/assistants/assistant-modal";
 import type { Assistant } from "@/types";
 
 const mainNav = [
@@ -31,14 +35,25 @@ interface AppSidebarProps {
   onToggle: () => void;
 }
 
+const PLAN_LIMITS = { free: 1, pro: 3 };
+
 export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
   const location = useLocation();
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Fetch assistants from API
   const { data: assistants = [], isLoading } = useQuery({
     queryKey: ["assistants"],
     queryFn: assistantsApi.list,
   });
+
+  const { data: subscription } = useQuery({
+    queryKey: ["subscription"],
+    queryFn: billingApi.getSubscription,
+  });
+
+  const maxAssistants = subscription?.is_pro ? PLAN_LIMITS.pro : PLAN_LIMITS.free;
+  const isAtLimit = assistants.length >= maxAssistants;
 
   return (
     <aside
@@ -156,6 +171,26 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
               </Link>
             );
           })}
+
+        {/* Add assistant button */}
+        {!isAtLimit && !isLoading && !collapsed && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors w-full text-left text-sidebar-muted hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground mt-1"
+          >
+            <Plus className="h-4 w-4 shrink-0" />
+            <span>Ajouter un assistant</span>
+          </button>
+        )}
+        {!isAtLimit && !isLoading && collapsed && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center justify-center py-2 rounded-md transition-colors w-full text-sidebar-muted hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground mt-1"
+            title="Ajouter un assistant"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Bottom */}
@@ -183,6 +218,12 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
       </div>
+      {/* Create assistant modal */}
+      <AssistantModal
+        open={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        assistant={null}
+      />
     </aside>
   );
 }

@@ -23,8 +23,8 @@ router = APIRouter()
 
 # Plan limits for assistants
 ASSISTANT_LIMITS = {
-    SubscriptionPlan.FREE.value: 3,
-    SubscriptionPlan.PRO.value: 10,
+    SubscriptionPlan.FREE.value: 1,
+    SubscriptionPlan.PRO.value: 3,
 }
 
 MAX_INTEGRATIONS_PER_ASSISTANT = 2

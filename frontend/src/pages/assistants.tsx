@@ -30,8 +30,8 @@ import { DeleteAssistantDialog } from "@/components/assistants/delete-assistant-
 import type { Assistant } from "@/types"
 
 const PLAN_LIMITS = {
-  free: 3,
-  pro: 10,
+  free: 1,
+  pro: 3,
 }
 
 export function AssistantsPage() {
