@@ -47,6 +47,7 @@ export default {
         accent: {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
+          soft: "hsl(var(--accent-soft))",
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",
@@ -119,6 +120,10 @@ export default {
           "0%, 100%": { boxShadow: "0 0 0 0 hsl(var(--gold) / 0.3)" },
           "50%": { boxShadow: "0 0 0 6px hsl(var(--gold) / 0)" },
         },
+        "pulse-blue": {
+          "0%, 100%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0.3)" },
+          "50%": { boxShadow: "0 0 0 6px hsl(var(--primary) / 0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -129,6 +134,7 @@ export default {
         "slide-in-right": "slide-in-right 0.3s ease-out",
         "slide-in-left": "slide-in-left 0.2s ease-out",
         "pulse-gold": "pulse-gold 2s ease-in-out infinite",
+        "pulse-blue": "pulse-blue 2s ease-in-out infinite",
       },
     },
   },

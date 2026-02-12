@@ -139,7 +139,7 @@ export function ProfilePage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 h-auto min-h-[3.5rem] px-3 sm:px-5 py-2 border-b border-border bg-surface-elevated shrink-0 flex-wrap">
-        <Settings className="h-4 w-4 text-gold shrink-0 hidden sm:block" />
+        <Settings className="h-4 w-4 text-primary shrink-0 hidden sm:block" />
         <h1 className="font-display font-semibold text-foreground text-sm sm:text-base">
           Réglages
         </h1>
@@ -150,7 +150,7 @@ export function ProfilePage() {
           {/* ── Informations personnelles ── */}
           <section className="bg-card border border-border rounded-lg shadow-soft overflow-hidden">
             <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-border">
-              <User className="h-4 w-4 text-gold" />
+              <User className="h-4 w-4 text-primary" />
               <h3 className="font-display font-semibold text-foreground text-sm">
                 Informations personnelles
               </h3>
@@ -222,7 +222,7 @@ export function ProfilePage() {
           {/* ── Connexion email ── */}
           <section className="bg-card border border-border rounded-lg shadow-soft overflow-hidden">
             <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-border">
-              <Mail className="h-4 w-4 text-gold" />
+              <Mail className="h-4 w-4 text-primary" />
               <h3 className="font-display font-semibold text-foreground text-sm">
                 Connexion email
               </h3>
@@ -283,7 +283,7 @@ export function ProfilePage() {
           {/* ── Connecteurs ── */}
           <section className="bg-card border border-border rounded-lg shadow-soft overflow-hidden">
             <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-border">
-              <Plug className="h-4 w-4 text-gold" />
+              <Plug className="h-4 w-4 text-primary" />
               <h3 className="font-display font-semibold text-foreground text-sm">
                 Connecteurs
               </h3>
@@ -350,7 +350,7 @@ export function ProfilePage() {
           {/* ── Compte & Sécurité ── */}
           <section className="bg-card border border-border rounded-lg shadow-soft overflow-hidden">
             <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-border">
-              <Settings className="h-4 w-4 text-gold" />
+              <Settings className="h-4 w-4 text-primary" />
               <h3 className="font-display font-semibold text-foreground text-sm">
                 Compte & Sécurité
               </h3>

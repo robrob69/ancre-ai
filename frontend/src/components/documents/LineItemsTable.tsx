@@ -76,7 +76,18 @@ export function LineItemsTable({
     [items, onChange]
   )
 
-  const grandTotal = items.reduce((sum, item) => sum + (item.total || 0), 0)
+  // Normalize items to ensure all numeric fields have defaults (AI may omit some)
+  const safeItems = items.map((item) => ({
+    ...item,
+    quantity: item.quantity ?? 0,
+    unit_price: item.unit_price ?? 0,
+    tax_rate: item.tax_rate ?? 0,
+    total: item.total ?? 0,
+    unit: item.unit ?? "",
+    description: item.description ?? "",
+  }))
+
+  const grandTotal = safeItems.reduce((sum, item) => sum + (item.total || 0), 0)
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -97,7 +108,7 @@ export function LineItemsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((item, index) => (
+          {safeItems.map((item, index) => (
             <TableRow key={item.id}>
               <TableCell>
                 <Input

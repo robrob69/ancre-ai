@@ -20,7 +20,7 @@ const badgeVariants = cva(
         success:
           "border-transparent bg-success/10 text-success",
         gold:
-          "border-transparent bg-gold-light text-gold-foreground",
+          "border-transparent bg-primary/10 text-primary",
       },
     },
     defaultVariants: {

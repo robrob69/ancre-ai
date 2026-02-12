@@ -28,7 +28,7 @@ export const DocumentWorkspace = () => {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 sm:gap-3 h-auto min-h-[3.5rem] px-3 sm:px-5 py-2 border-b border-border bg-surface-elevated shrink-0 flex-wrap">
-        <FileText className="h-4 w-4 text-gold shrink-0 hidden sm:block" />
+        <FileText className="h-4 w-4 text-primary shrink-0 hidden sm:block" />
         <h1 className="font-display font-semibold text-foreground text-sm sm:text-base">Documents</h1>
         <span className="text-xs text-muted-foreground">{filtered.length} docs</span>
         <div className="ml-auto flex items-center gap-2">
@@ -45,7 +45,7 @@ export const DocumentWorkspace = () => {
             variant="premium"
             size="sm"
             className="gap-1.5 shrink-0"
-            onClick={() => navigate("/app?mode=document")}
+            onClick={() => navigate("/app/documents")}
           >
             <Plus className="h-3.5 w-3.5" />
             Nouveau
@@ -58,10 +58,10 @@ export const DocumentWorkspace = () => {
           {filtered.map((doc) => (
             <div
               key={doc.title}
-              className="group flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 sm:py-4 rounded-lg bg-card border border-border hover:shadow-soft hover:border-gold/20 transition-all cursor-pointer"
+              className="group flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 sm:py-4 rounded-lg bg-card border border-border hover:shadow-soft hover:border-primary/20 transition-all cursor-pointer"
             >
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-gold-light flex items-center justify-center shrink-0">
-                <FileText className="h-4 w-4 text-gold" />
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-accent flex items-center justify-center shrink-0">
+                <FileText className="h-4 w-4 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-foreground truncate">{doc.title}</div>

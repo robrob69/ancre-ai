@@ -63,7 +63,7 @@ export function CollectionsPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 h-auto min-h-[3.5rem] px-3 sm:px-5 py-2 border-b border-border bg-surface-elevated shrink-0 flex-wrap">
-        <FolderOpen className="h-4 w-4 text-gold shrink-0 hidden sm:block" />
+        <FolderOpen className="h-4 w-4 text-primary shrink-0 hidden sm:block" />
         <h1 className="font-display font-semibold text-foreground text-sm sm:text-base">Collections</h1>
         <span className="text-xs text-muted-foreground hidden sm:inline">
           {totalDocs} documents · {totalLinks} liens · {assistantsCollections.length} assistants
@@ -73,13 +73,13 @@ export function CollectionsPage() {
       <div className="flex-1 overflow-auto bg-surface p-3 sm:p-5">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Info banner */}
-          <div className="flex items-center gap-3 p-4 bg-gold-light border border-gold/20 rounded-lg">
-            <FolderOpen className="h-5 w-5 text-gold shrink-0" />
+          <div className="flex items-center gap-3 p-4 bg-accent border border-primary/20 rounded-lg">
+            <FolderOpen className="h-5 w-5 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gold-foreground">
+              <p className="text-sm font-medium text-white">
                 Chaque assistant possède sa propre collection
               </p>
-              <p className="text-xs text-gold-foreground/70 mt-0.5">
+              <p className="text-xs text-white/70 mt-0.5">
                 Ajoutez documents et liens depuis l'onglet "Configurer" de chaque assistant.
               </p>
             </div>
@@ -126,8 +126,8 @@ export function CollectionsPage() {
                     key={i}
                     className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-muted/30 transition-colors"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-gold-light flex items-center justify-center shrink-0">
-                      <FileText className="h-3.5 w-3.5 text-gold" />
+                    <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center shrink-0">
+                      <FileText className="h-3.5 w-3.5 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-foreground truncate">{doc.name}</div>

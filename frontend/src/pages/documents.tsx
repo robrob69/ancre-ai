@@ -101,12 +101,7 @@ export function DocumentsPage() {
     <div className="container py-8 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Documents</h1>
-          <p className="text-muted-foreground">
-            Creez et editez vos documents professionnels.
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight">Documents</h1>
         <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Nouveau document

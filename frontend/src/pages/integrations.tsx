@@ -70,7 +70,7 @@ export function IntegrationsPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 h-auto min-h-[3.5rem] px-3 sm:px-5 py-2 border-b border-border bg-surface-elevated shrink-0 flex-wrap">
-        <Plug className="h-4 w-4 text-gold shrink-0 hidden sm:block" />
+        <Plug className="h-4 w-4 text-primary shrink-0 hidden sm:block" />
         <h1 className="font-display font-semibold text-foreground text-sm sm:text-base">Connecteurs</h1>
         <span className="text-xs text-muted-foreground hidden sm:inline">
           {totalConnected} connecté{totalConnected > 1 ? "s" : ""} sur {totalConnectors} · {assistantsConnectors.length} assistants
@@ -80,13 +80,13 @@ export function IntegrationsPage() {
       <div className="flex-1 overflow-auto bg-surface p-3 sm:p-5">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Info banner */}
-          <div className="flex items-center gap-3 p-4 bg-gold-light border border-gold/20 rounded-lg">
-            <Plug className="h-5 w-5 text-gold shrink-0" />
+          <div className="flex items-center gap-3 p-4 bg-accent border border-primary/20 rounded-lg">
+            <Plug className="h-5 w-5 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gold-foreground">
+              <p className="text-sm font-medium text-white">
                 Les connecteurs sont rattachés à chaque assistant
               </p>
-              <p className="text-xs text-gold-foreground/70 mt-0.5">
+              <p className="text-xs text-white/70 mt-0.5">
                 Gérez les connexions OAuth depuis l'onglet "Configurer" de chaque assistant.
               </p>
             </div>
@@ -164,7 +164,7 @@ export function IntegrationsPage() {
               {availableProviders.map((provider) => (
                 <div
                   key={provider.key}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-card border border-border hover:shadow-soft hover:border-gold/20 transition-all"
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-card border border-border hover:shadow-soft hover:border-primary/20 transition-all"
                 >
                   <div className={`w-7 h-7 rounded-md flex items-center justify-center text-white text-[10px] font-bold shrink-0 ${provider.color}`}>
                     {provider.name.slice(0, 2).toUpperCase()}

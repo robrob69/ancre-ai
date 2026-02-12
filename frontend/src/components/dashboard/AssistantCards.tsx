@@ -45,7 +45,7 @@ export function AssistantCards() {
           <button
             key={a.name}
             onClick={() => navigate(`/app/assistant/${a.slug}`)}
-            className="group flex flex-col items-start gap-3 p-4 rounded-lg bg-card border border-border shadow-soft hover:shadow-elevated hover:border-gold/30 transition-all text-left"
+            className="group flex flex-col items-start gap-3 p-4 rounded-lg bg-card border border-border shadow-soft hover:shadow-elevated hover:border-primary/30 transition-all text-left"
           >
             <div className="flex items-center gap-3 w-full">
               <span className="text-2xl">{a.emoji}</span>

@@ -35,6 +35,7 @@ import {
 import type { Document as DocType } from "@/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AnchorLogo } from "@/components/ui/anchor-logo";
 
 // ── Provider display names ──
 const PROVIDER_NAMES: Record<string, string> = {
@@ -320,7 +321,7 @@ const AssistantPage = () => {
   if (isLoadingAssistant) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-6 w-6 animate-spin text-gold" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     );
   }
@@ -359,25 +360,33 @@ const AssistantPage = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant={activeTab === "chat" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1 sm:gap-1.5 text-xs sm:text-sm"
+        <div className="flex items-center gap-6 shrink-0">
+          <button
+            className={cn(
+              "relative py-3 text-sm font-medium flex items-center gap-1.5 transition-colors",
+              activeTab === "chat" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
             onClick={() => setActiveTab("chat")}
           >
             <MessageSquare className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Chat</span>
-          </Button>
-          <Button
-            variant={activeTab === "config" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1 sm:gap-1.5 text-xs sm:text-sm"
+            {activeTab === "chat" && (
+              <span className="absolute left-0 right-0 -bottom-[1px] h-[2px] rounded-full bg-primary" />
+            )}
+          </button>
+          <button
+            className={cn(
+              "relative py-3 text-sm font-medium flex items-center gap-1.5 transition-colors",
+              activeTab === "config" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
             onClick={() => setActiveTab("config")}
           >
             <Settings2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Configurer</span>
-          </Button>
+            {activeTab === "config" && (
+              <span className="absolute left-0 right-0 -bottom-[1px] h-[2px] rounded-full bg-primary" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -389,11 +398,13 @@ const AssistantPage = () => {
             <div className="max-w-2xl mx-auto space-y-4">
               {messages.length === 0 && (
                 <div className="text-center py-16 space-y-4">
-                  <div className="w-16 h-16 rounded-2xl bg-gold-light mx-auto flex items-center justify-center">
+                  <div className="mx-auto flex items-center justify-center">
                     {emoji ? (
-                      <span className="text-3xl">{emoji}</span>
+                      <div className="w-16 h-16 rounded-lg bg-accent flex items-center justify-center">
+                        <span className="text-3xl">{emoji}</span>
+                      </div>
                     ) : (
-                      <Bot className="h-8 w-8 text-gold" />
+                      <AnchorLogo size="lg" />
                     )}
                   </div>
                   <div>
@@ -436,16 +447,14 @@ const AssistantPage = () => {
                   )}
                 >
                   {msg.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-lg bg-gold-light flex items-center justify-center shrink-0 mt-0.5">
-                      <Bot className="h-4 w-4 text-gold" />
-                    </div>
+                    <AnchorLogo size="sm" streaming={msg.isStreaming} className="mt-0.5" />
                   )}
                   <div
                     className={cn(
-                      "max-w-[75%] rounded-xl px-4 py-3 text-sm leading-relaxed",
+                      "max-w-[75%] rounded-lg px-4 py-3 text-sm leading-relaxed",
                       msg.role === "user"
                         ? "bg-primary text-primary-foreground"
-                        : "bg-card border border-border text-foreground"
+                        : "bg-card border border-border text-foreground shadow-soft"
                     )}
                   >
                     {msg.role === "assistant" ? (
@@ -503,7 +512,7 @@ const AssistantPage = () => {
             {/* ── Consignes ── */}
             <section className="space-y-3">
               <div className="flex items-center gap-2">
-                <StickyNote className="h-4 w-4 text-gold" />
+                <StickyNote className="h-4 w-4 text-primary" />
                 <h3 className="font-display font-semibold text-foreground text-sm">
                   Consignes & Prompt système
                 </h3>
@@ -515,7 +524,7 @@ const AssistantPage = () => {
                   setConfigDirty(true);
                 }}
                 rows={5}
-                className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground resize-none outline-none focus:border-gold/40 transition-colors placeholder:text-muted-foreground"
+                className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground resize-none outline-none focus:ring-4 focus:ring-ring/15 focus:border-ring/35 transition-colors placeholder:text-muted-foreground"
                 placeholder="Décrivez le comportement de l'assistant, son ton, ses spécialités…"
               />
               <p className="text-xs text-muted-foreground">
@@ -527,7 +536,7 @@ const AssistantPage = () => {
             {/* ── Liens de sites ── */}
             <section className="space-y-3">
               <div className="flex items-center gap-2">
-                <LinkIcon className="h-4 w-4 text-gold" />
+                <LinkIcon className="h-4 w-4 text-primary" />
                 <h3 className="font-display font-semibold text-foreground text-sm">
                   Liens de sites
                 </h3>
@@ -580,7 +589,7 @@ const AssistantPage = () => {
             {/* ── Documents ── */}
             <section className="space-y-3">
               <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-gold" />
+                <FileText className="h-4 w-4 text-primary" />
                 <h3 className="font-display font-semibold text-foreground text-sm">
                   Documents
                 </h3>
@@ -602,8 +611,8 @@ const AssistantPage = () => {
                       key={doc.id}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-card border border-border group"
                     >
-                      <div className="w-8 h-8 rounded-lg bg-gold-light flex items-center justify-center shrink-0">
-                        <FileText className="h-3.5 w-3.5 text-gold" />
+                      <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center shrink-0">
+                        <FileText className="h-3.5 w-3.5 text-primary" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm text-foreground truncate">
@@ -666,7 +675,7 @@ const AssistantPage = () => {
             {/* ── Connecteurs disponibles ── */}
             <section className="space-y-3">
               <div className="flex items-center gap-2">
-                <Plug className="h-4 w-4 text-gold" />
+                <Plug className="h-4 w-4 text-primary" />
                 <h3 className="font-display font-semibold text-foreground text-sm">
                   Connecteurs disponibles
                 </h3>
@@ -699,8 +708,8 @@ const AssistantPage = () => {
                         className={cn(
                           "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
                           isSelected
-                            ? "bg-gold/10 border-gold/40 text-gold"
-                            : "bg-card border-border text-muted-foreground hover:border-gold/30"
+                            ? "bg-primary/10 border-primary/40 text-primary"
+                            : "bg-card border-border text-muted-foreground hover:border-primary/30"
                         )}
                       >
                         {isSelected && <CheckCircle2 className="h-3 w-3" />}

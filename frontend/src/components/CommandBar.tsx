@@ -10,7 +10,7 @@ import {
 
 const pages = [
   { label: "Accueil", path: "/app", icon: LayoutDashboard },
-  { label: "Documents", path: "/app/workspace", icon: FileText },
+  { label: "Documents", path: "/app/documents", icon: FileText },
   { label: "Emails", path: "/app/email", icon: Mail },
   { label: "Recherche", path: "/app/search", icon: Search },
   { label: "Facturation", path: "/app/billing", icon: CreditCard },
@@ -30,7 +30,7 @@ export function CommandBar({ open, onOpenChange }: CommandBarProps) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50" onClick={() => onOpenChange(false)}>
       <div
-        className="fixed left-1/2 top-1/4 z-50 w-full max-w-lg -translate-x-1/2 rounded-xl border bg-popover p-0 shadow-lg"
+        className="fixed left-1/2 top-1/4 z-50 w-full max-w-lg -translate-x-1/2 rounded-lg border bg-popover p-0 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center border-b px-3">

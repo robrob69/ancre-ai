@@ -9,7 +9,7 @@ const actions = [
     label: "Rédiger un document",
     description: "Contrat, devis, NDA, compte-rendu, note…",
     icon: FileText,
-    path: "/app/workspace",
+    path: "/app/documents",
   },
   {
     id: "email",
@@ -49,10 +49,10 @@ export function DashboardPage() {
               <button
                 key={a.id}
                 onClick={() => navigate(a.path)}
-                className="group flex flex-col items-center gap-3 w-full px-4 py-5 rounded-xl bg-card border border-border shadow-soft hover:shadow-elevated hover:border-gold/30 transition-all text-center"
+                className="group flex flex-col items-center gap-3 w-full px-4 py-5 rounded-[var(--radius)] bg-card border border-border shadow-soft hover:shadow-elevated hover:border-primary/30 transition-all text-center"
               >
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gold-light group-hover:bg-gradient-gold transition-colors shrink-0">
-                  <a.icon className="h-5 w-5 text-gold group-hover:text-gold-foreground" />
+                <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-accent group-hover:bg-gradient-blue transition-colors shrink-0">
+                  <a.icon className="h-5 w-5 text-primary group-hover:text-white" />
                 </div>
                 <div>
                   <div className="text-sm font-semibold text-foreground">{a.label}</div>
@@ -77,7 +77,7 @@ export function DashboardPage() {
                 }}
                 rows={3}
                 placeholder="Ex : Rédige un email de relance pour le client TechCo concernant le devis en attente…"
-                className="w-full text-sm bg-card border border-border rounded-xl px-5 py-4 pr-28 outline-none focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground shadow-soft resize-none leading-relaxed"
+                className="w-full text-sm bg-card border border-border rounded-[var(--radius)] px-5 py-4 pr-28 outline-none focus:ring-4 focus:ring-ring/15 focus:border-ring/35 text-foreground placeholder:text-muted-foreground shadow-soft resize-none leading-relaxed transition-colors"
               />
               <div className="absolute right-3 bottom-3 flex items-center gap-1.5">
                 <button

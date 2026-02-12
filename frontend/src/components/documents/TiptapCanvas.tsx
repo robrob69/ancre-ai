@@ -55,9 +55,9 @@ export function TiptapCanvas({
   if (!editor) return null
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="rounded-[var(--radius)] border border-border bg-card shadow-soft overflow-hidden">
       {editable && (
-        <div className="flex items-center gap-0.5 border-b px-2 py-1 bg-muted/50">
+        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
           <Button
             variant="ghost"
             size="sm"
@@ -142,7 +142,7 @@ export function TiptapCanvas({
       )}
       <EditorContent
         editor={editor}
-        className="prose prose-sm max-w-none px-4 py-3 min-h-[80px] focus-within:outline-none [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0"
+        className="prose prose-zinc prose-sm max-w-none px-4 py-3 min-h-[80px] prose-p:leading-relaxed focus-within:outline-none [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0"
       />
     </div>
   )

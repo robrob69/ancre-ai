@@ -111,7 +111,7 @@ export function SearchPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 h-auto min-h-[3.5rem] px-3 sm:px-5 py-2 border-b border-border bg-surface-elevated shrink-0 flex-wrap">
-        <Search className="h-4 w-4 text-gold shrink-0 hidden sm:block" />
+        <Search className="h-4 w-4 text-primary shrink-0 hidden sm:block" />
         <h1 className="font-display font-semibold text-foreground text-sm sm:text-base">
           Recherche
         </h1>
@@ -119,7 +119,7 @@ export function SearchPage() {
           <select
             value={selectedAssistantId || ""}
             onChange={(e) => setSelectedAssistantId(e.target.value)}
-            className="ml-auto text-xs bg-card border border-border rounded-md px-2 py-1.5 text-foreground outline-none focus:border-gold/40"
+            className="ml-auto text-xs bg-card border border-border rounded-md px-2 py-1.5 text-foreground outline-none focus:ring-4 focus:ring-ring/15 focus:border-ring/35"
           >
             {assistants.map((a: Assistant) => (
               <option key={a.id} value={a.id}>
@@ -135,8 +135,8 @@ export function SearchPage() {
           {/* Search hero */}
           {!result && (
             <div className="pt-16 pb-8 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-2xl bg-gold-light flex items-center justify-center">
-                <Search className="h-7 w-7 text-gold" />
+              <div className="mx-auto w-16 h-16 rounded-lg bg-accent flex items-center justify-center">
+                <Search className="h-7 w-7 text-primary" />
               </div>
               <div>
                 <h2 className="font-display text-xl font-semibold text-foreground">
@@ -174,7 +174,7 @@ export function SearchPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 placeholder="Rechercher dans vos sources..."
-                className="w-full text-sm bg-card border border-border rounded-xl px-4 py-4 pr-24 outline-none focus:ring-2 focus:ring-ring text-foreground placeholder:text-muted-foreground shadow-soft"
+                className="w-full text-sm bg-card border border-border rounded-lg px-4 py-4 pr-24 outline-none focus:ring-4 focus:ring-ring/15 focus:border-ring/35 text-foreground placeholder:text-muted-foreground shadow-soft transition-colors"
                 disabled={isSearching}
               />
               <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -207,7 +207,7 @@ export function SearchPage() {
                   onClick={() => {
                     setQuery(s);
                   }}
-                  className="block w-full text-left text-sm px-4 py-3 rounded-lg bg-card border border-border hover:border-gold/30 hover:shadow-soft transition-all text-foreground"
+                  className="block w-full text-left text-sm px-4 py-3 rounded-lg bg-card border border-border hover:border-primary/30 hover:shadow-soft transition-all text-foreground"
                 >
                   {s}
                 </button>
@@ -218,10 +218,10 @@ export function SearchPage() {
           {/* Result */}
           {result && (
             <div ref={resultRef} className="pb-8 space-y-4">
-              <div className="bg-card border border-border rounded-xl p-5 shadow-soft">
+              <div className="bg-card border border-border rounded-lg p-5 shadow-soft">
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-gold-light flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="h-4 w-4 text-gold" />
+                  <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center shrink-0 mt-0.5">
+                    <Bot className="h-4 w-4 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
                     {result.isStreaming && !result.content ? (

@@ -359,7 +359,7 @@ export function HomePage() {
               </div>
             </div>
             <div className="relative">
-              <div className="aspect-video rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border-2 border-primary/20 flex items-center justify-center">
+              <div className="aspect-video rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border-2 border-primary/20 flex items-center justify-center">
                 <div className="text-center p-8">
                   <MessageSquare className="h-16 w-16 text-primary/40 mx-auto mb-4" />
                   <p className="text-muted-foreground">
@@ -388,7 +388,7 @@ export function HomePage() {
               est accessible à tout moment pour ajuster votre capacité (nombre
               d'assistants) en fonction de la croissance de votre entreprise.
             </p>
-            <div className="mt-8 p-6 rounded-xl bg-background border-2">
+            <div className="mt-8 p-6 rounded-lg bg-background border-2">
               <p className="text-lg font-medium">
                 En résumé, notre solution transforme votre{" "}
                 <span className="text-primary">passif documentaire</span> en{" "}
@@ -419,7 +419,7 @@ export function HomePage() {
             {keyPoints.map((point) => (
               <div
                 key={point.title}
-                className="flex flex-col items-center text-center p-6 rounded-xl border-2 hover:border-primary/50 transition-colors bg-background"
+                className="flex flex-col items-center text-center p-6 rounded-lg border-2 hover:border-primary/50 transition-colors bg-background"
               >
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 mb-4">
                   <point.icon className="h-6 w-6 text-primary" />

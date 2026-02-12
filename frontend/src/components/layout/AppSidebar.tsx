@@ -9,7 +9,6 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Anchor,
   MessageSquare,
   CreditCard,
   Bot,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { AnchorLogo } from "@/components/ui/anchor-logo";
 import { assistantsApi } from "@/api/assistants";
 import { billingApi } from "@/api/billing";
 import { AssistantModal } from "@/components/assistants/assistant-modal";
@@ -25,7 +25,7 @@ import type { Assistant } from "@/types";
 
 const mainNav = [
   { label: "Accueil", icon: LayoutDashboard, path: "/app" },
-  { label: "Documents", icon: FileText, path: "/app/workspace" },
+  { label: "Documents", icon: FileText, path: "/app/documents" },
   { label: "Emails", icon: Mail, path: "/app/email" },
   { label: "Recherche", icon: Search, path: "/app/search" },
 ];
@@ -64,9 +64,9 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
     >
       {/* Logo */}
       <div className="flex items-center h-14 px-4 border-b border-sidebar-border">
-        <Anchor className="h-5 w-5 text-gold shrink-0" />
+        <AnchorLogo size="sm" />
         {!collapsed && (
-          <span className="ml-2.5 font-display text-lg font-bold text-sidebar-primary tracking-tight">
+          <span className="ml-2.5 text-sm font-semibold text-sidebar-foreground">
             Ancre
           </span>
         )}
@@ -89,7 +89,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
                 "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )}
             >
               <item.icon className="h-4 w-4 shrink-0" />
@@ -128,7 +128,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
                   "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors w-full text-left group",
                   location.pathname === assistantPath
                     ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
               >
                 {emoji ? (
@@ -159,7 +159,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
                   "flex items-center justify-center py-2 rounded-md transition-colors w-full",
                   location.pathname === assistantPath
                     ? "bg-sidebar-accent"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                    : "text-muted-foreground hover:bg-sidebar-accent"
                 )}
                 title={a.name}
               >
@@ -176,7 +176,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         {!isAtLimit && !isLoading && !collapsed && (
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors w-full text-left text-sidebar-muted hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground mt-1"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors w-full text-left text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mt-1"
           >
             <Plus className="h-4 w-4 shrink-0" />
             <span>Ajouter un assistant</span>
@@ -185,7 +185,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         {!isAtLimit && !isLoading && collapsed && (
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center justify-center py-2 rounded-md transition-colors w-full text-sidebar-muted hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground mt-1"
+            className="flex items-center justify-center py-2 rounded-md transition-colors w-full text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mt-1"
             title="Ajouter un assistant"
           >
             <Plus className="h-4 w-4" />
@@ -197,14 +197,14 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
       <div className="border-t border-sidebar-border p-2 space-y-0.5">
         <Link
           to="/app/billing"
-          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
         >
           <CreditCard className="h-4 w-4 shrink-0" />
           {!collapsed && <span>Facturation</span>}
         </Link>
         <Link
           to="/app/profile"
-          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
         >
           <Settings className="h-4 w-4 shrink-0" />
           {!collapsed && <span>Réglages</span>}

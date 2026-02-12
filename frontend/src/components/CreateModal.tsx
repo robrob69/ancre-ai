@@ -12,7 +12,7 @@ const createActions = [
     label: "Rédiger un document",
     description: "Contrat, devis, NDA, compte-rendu",
     icon: FileText,
-    path: "/app/workspace",
+    path: "/app/documents",
   },
   {
     label: "Composer un email",
@@ -52,8 +52,8 @@ export function CreateModal({ open, onOpenChange }: CreateModalProps) {
                 onOpenChange(false);
               }}
             >
-              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gold-light shrink-0">
-                <action.icon className="h-5 w-5 text-gold" />
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent shrink-0">
+                <action.icon className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <div className="text-sm font-medium text-foreground">{action.label}</div>

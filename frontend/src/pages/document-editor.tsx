@@ -5,27 +5,24 @@ import {
   ArrowLeft,
   Download,
   Loader2,
-  Plus,
   Save,
   AlertCircle,
+  Eye,
+  PenLine,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { useToast } from "@/hooks/use-toast"
 import { useDocumentStore } from "@/hooks/use-document-store"
 import { useAutosave } from "@/hooks/use-autosave"
 import { workspaceDocumentsApi } from "@/api/workspace-documents"
 import { BlockRenderer } from "@/components/documents/BlockRenderer"
 import { DocumentCopilotActions } from "@/components/documents/DocumentCopilotActions"
-import type { DocBlock, DocModel } from "@/types"
+import { DocumentPromptBar } from "@/components/documents/DocumentPromptBar"
+import { DocumentPreview } from "@/components/documents/DocumentPreview"
+import type { DocBlock, DocBlockKind, DocModel } from "@/types"
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Brouillon",
@@ -65,6 +62,7 @@ export function DocumentEditorPage() {
 
   const [title, setTitle] = useState("")
   const [isExporting, setIsExporting] = useState(false)
+  const [isPreview, setIsPreview] = useState(false)
 
   // Fetch document
   const {
@@ -209,8 +207,10 @@ export function DocumentEditorPage() {
     )
   }
 
+  const blocksEmpty = !docModel?.blocks || docModel.blocks.length === 0
+
   return (
-    <div className="container py-6 max-w-4xl space-y-6">
+    <div className="flex flex-col h-full">
       {/* CopilotKit actions (invisible — registers hooks) */}
       <DocumentCopilotActions
         docId={id!}
@@ -220,7 +220,7 @@ export function DocumentEditorPage() {
       />
 
       {/* Top bar */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-border bg-surface-elevated shrink-0">
         <Button
           variant="ghost"
           size="sm"
@@ -233,7 +233,7 @@ export function DocumentEditorPage() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={handleTitleBlur}
-          className="text-xl font-semibold border-0 shadow-none bg-transparent h-auto py-1 px-2 focus-visible:ring-1"
+          className="text-lg font-semibold border-0 shadow-none bg-transparent h-auto py-1 px-2 focus-visible:ring-1 max-w-md"
           placeholder="Sans titre"
         />
 
@@ -258,6 +258,26 @@ export function DocumentEditorPage() {
           ) : null}
         </div>
 
+        {/* Preview toggle */}
+        <Button
+          variant={isPreview ? "default" : "outline"}
+          size="sm"
+          onClick={() => setIsPreview((v) => !v)}
+          className="gap-1.5"
+        >
+          {isPreview ? (
+            <>
+              <PenLine className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Editer</span>
+            </>
+          ) : (
+            <>
+              <Eye className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Apercu</span>
+            </>
+          )}
+        </Button>
+
         {/* Export PDF */}
         <Button
           variant="outline"
@@ -270,83 +290,69 @@ export function DocumentEditorPage() {
           ) : (
             <Download className="h-4 w-4 mr-2" />
           )}
-          Exporter PDF
+          <span className="hidden sm:inline">Exporter PDF</span>
         </Button>
       </div>
 
-      {/* Blocks */}
-      <div className="space-y-4">
-        {docModel?.blocks.map((block) => (
-          <BlockRenderer
-            key={block.id}
-            block={block}
-            onChange={(patch) => handleBlockChange(block.id, patch)}
-            onRemove={() => removeBlock(block.id)}
-          />
-        ))}
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-auto bg-surface">
+        {isPreview ? (
+          /* ── Preview mode ── */
+          <div className="px-4 sm:px-6 py-8">
+            <DocumentPreview
+              title={title}
+              docType={doc.doc_type}
+              docModel={docModel}
+            />
+          </div>
+        ) : (
+          /* ── Edit mode ── */
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-4 min-h-full flex flex-col">
+            {/* Blocks */}
+            <div className="space-y-4 flex-1">
+              {docModel?.blocks.map((block) => (
+                <BlockRenderer
+                  key={block.id}
+                  block={block}
+                  onChange={(patch) => handleBlockChange(block.id, patch)}
+                  onRemove={() => removeBlock(block.id)}
+                />
+              ))}
 
-        {(!docModel?.blocks || docModel.blocks.length === 0) && (
-          <div className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed rounded-lg">
-            <p className="text-muted-foreground mb-4">
-              Ce document est vide. Ajoutez des blocs pour commencer.
-            </p>
+              {/* Sources (if any) */}
+              {docModel?.sources && docModel.sources.length > 0 && (
+                <div className="border-t pt-4 mt-4">
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-2">
+                    Sources RAG
+                  </h3>
+                  <ul className="space-y-1 text-sm text-muted-foreground">
+                    {docModel.sources.map((src, i) => (
+                      <li key={i}>
+                        {src.document_filename}
+                        {src.page_number && `, p. ${src.page_number}`}
+                        {src.excerpt && (
+                          <span className="text-xs ml-2 italic">
+                            — {src.excerpt.slice(0, 100)}...
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* AI Prompt Bar — always visible at bottom in edit mode */}
+            <DocumentPromptBar
+              docId={id!}
+              docType={doc.doc_type}
+              collectionIds={collectionIds}
+              onAddBlock={(type: DocBlockKind) => handleAddBlock(type)}
+              isEmpty={blocksEmpty}
+            />
           </div>
         )}
       </div>
-
-      {/* Add block button */}
-      <div className="flex justify-center">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              Ajouter un bloc
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="center">
-            <DropdownMenuItem onClick={() => handleAddBlock("rich_text")}>
-              Texte riche
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleAddBlock("line_items")}>
-              Lignes (devis/facture)
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleAddBlock("clause")}>
-              Clause
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleAddBlock("terms")}>
-              Conditions
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleAddBlock("signature")}>
-              Signature
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleAddBlock("variables")}>
-              Variables
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Sources (if any) */}
-      {docModel?.sources && docModel.sources.length > 0 && (
-        <div className="border-t pt-4 mt-8">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-2">
-            Sources RAG
-          </h3>
-          <ul className="space-y-1 text-sm text-muted-foreground">
-            {docModel.sources.map((src, i) => (
-              <li key={i}>
-                {src.document_filename}
-                {src.page_number && `, p. ${src.page_number}`}
-                {src.excerpt && (
-                  <span className="text-xs ml-2 italic">
-                    — {src.excerpt.slice(0, 100)}...
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }
