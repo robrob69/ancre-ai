@@ -21,7 +21,6 @@ import {
   AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { AnchorLogo } from "@/components/ui/anchor-logo"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,10 +63,6 @@ declare global {
 
 // ── Helpers ──
 
-function generateId() {
-  return crypto.randomUUID()
-}
-
 function applyPatches(
   patches: DocPatch[],
   updateBlock: (id: string, patch: Partial<DocBlock>) => void,
@@ -99,6 +94,7 @@ interface DocumentPromptBarProps {
   collectionIds?: string[]
   onAddBlock: (type: DocBlockKind) => void
   isEmpty?: boolean
+  onGeneratingChange?: (generating: boolean) => void
 }
 
 export function DocumentPromptBar({
@@ -107,6 +103,7 @@ export function DocumentPromptBar({
   collectionIds = [],
   onAddBlock,
   isEmpty = false,
+  onGeneratingChange,
 }: DocumentPromptBarProps) {
   const [prompt, setPrompt] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
@@ -211,6 +208,7 @@ export function DocumentPromptBar({
     if (!prompt.trim() || isGenerating) return
 
     setIsGenerating(true)
+    onGeneratingChange?.(true)
     setError(null)
     setAiMessage(null)
 
@@ -237,6 +235,7 @@ export function DocumentPromptBar({
       )
     } finally {
       setIsGenerating(false)
+      onGeneratingChange?.(false)
     }
   }, [
     prompt,
@@ -275,14 +274,6 @@ export function DocumentPromptBar({
         <div className="max-w-3xl mx-auto mb-2 flex items-center gap-2 text-sm text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 animate-fade-in">
           <Sparkles className="h-3.5 w-3.5 shrink-0" />
           <span>{aiMessage}</span>
-        </div>
-      )}
-
-      {/* Generating indicator with Ancre logo */}
-      {isGenerating && (
-        <div className="max-w-3xl mx-auto mb-3 flex items-center gap-3 justify-center animate-fade-in">
-          <AnchorLogo streaming size="sm" />
-          <span className="text-sm text-muted-foreground">Generation du document en cours…</span>
         </div>
       )}
 

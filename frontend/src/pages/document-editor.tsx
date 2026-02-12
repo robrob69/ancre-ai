@@ -22,6 +22,7 @@ import { BlockRenderer } from "@/components/documents/BlockRenderer"
 import { DocumentCopilotActions } from "@/components/documents/DocumentCopilotActions"
 import { DocumentPromptBar } from "@/components/documents/DocumentPromptBar"
 import { DocumentPreview } from "@/components/documents/DocumentPreview"
+import { AnchorSpinner } from "@/components/documents/AnchorSpinner"
 import type { DocBlock, DocBlockKind, DocModel } from "@/types"
 
 const STATUS_LABELS: Record<string, string> = {
@@ -63,6 +64,7 @@ export function DocumentEditorPage() {
   const [title, setTitle] = useState("")
   const [isExporting, setIsExporting] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
 
   // Fetch document
   const {
@@ -295,7 +297,10 @@ export function DocumentEditorPage() {
       </div>
 
       {/* Scrollable content area */}
-      <div className="flex-1 overflow-auto bg-surface">
+      <div className="flex-1 overflow-auto bg-surface relative">
+        {/* Anchor spinner overlay during AI generation */}
+        <AnchorSpinner active={isGenerating} />
+
         {isPreview ? (
           /* ── Preview mode ── */
           <div className="px-4 sm:px-6 py-8">
@@ -349,6 +354,7 @@ export function DocumentEditorPage() {
               collectionIds={collectionIds}
               onAddBlock={(type: DocBlockKind) => handleAddBlock(type)}
               isEmpty={blocksEmpty}
+              onGeneratingChange={setIsGenerating}
             />
           </div>
         )}
