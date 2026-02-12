@@ -1,4 +1,4 @@
-.PHONY: help install dev up down logs migrate worker api test lint format clean
+.PHONY: help install dev up down logs migrate worker api test lint format clean start
 
 help:
 	@echo "Mecano Man - RAG SaaS Backend"
@@ -8,6 +8,7 @@ help:
 	@echo "  make dev        - Install with dev dependencies"
 	@echo "  make up         - Start all services (docker)"
 	@echo "  make down       - Stop all services"
+	@echo "  make start      - Start API + frontend (dev)"
 	@echo "  make logs       - View docker logs"
 	@echo "  make migrate    - Run database migrations"
 	@echo "  make worker     - Start Arq worker"
@@ -16,6 +17,9 @@ help:
 	@echo "  make lint       - Run linter"
 	@echo "  make format     - Format code"
 	@echo "  make clean      - Clean up"
+
+start:
+	./start-dev.sh
 
 install:
 	pip install -e .

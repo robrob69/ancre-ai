@@ -10,8 +10,15 @@ import { CopilotChatPopup } from "@/components/copilotkit/CopilotChatPopup"
 import App from "./App"
 import "./index.css"
 
-// Get Clerk publishable key from environment
-const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+// Get Clerk publishable key from environment (ignore placeholders so app runs without auth)
+const rawKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+const CLERK_PUBLISHABLE_KEY =
+  rawKey &&
+  typeof rawKey === "string" &&
+  rawKey.length > 20 &&
+  !/^pk_(test|live)_xxx$/i.test(rawKey)
+    ? rawKey
+    : undefined
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,7 +54,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       </ClerkProvider>
     ) : (
       <>
-        {console.warn("⚠️ VITE_CLERK_PUBLISHABLE_KEY not set - running without auth")}
+        {console.warn(
+          "⚠️ Clerk disabled: set VITE_CLERK_PUBLISHABLE_KEY in .env with a real key from https://dashboard.clerk.com (not the placeholder pk_test_xxx)"
+        )}
         <AppWithProviders />
       </>
     )}
