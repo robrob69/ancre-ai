@@ -9,11 +9,12 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  MessageSquare,
   CreditCard,
   Bot,
   Loader2,
   Plus,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ const PLAN_LIMITS = { free: 1, pro: 3 };
 export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
   const location = useLocation();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [assistantsExpanded, setAssistantsExpanded] = useState(true);
 
   // Fetch assistants from API
   const { data: assistants = [], isLoading } = useQuery({
@@ -99,124 +101,156 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         })}
       </nav>
 
-      {/* Assistants section */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3">
-        <div className={cn("mb-2 mt-2", collapsed && "hidden")}>
-          <span className="px-2 text-[11px] font-medium uppercase tracking-wider text-sidebar-muted">
-            Assistants
-          </span>
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Bottom section: Assistants + Facturation + Réglages */}
+      <div className="border-t border-sidebar-border">
+        {/* Assistants section — collapsible, between nav and settings */}
+        <div className="px-2 pt-2 pb-1">
+          {!collapsed ? (
+            <>
+              {/* Assistants header */}
+              <button
+                onClick={() => setAssistantsExpanded((v) => !v)}
+                className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider text-sidebar-muted hover:text-sidebar-accent-foreground transition-colors"
+              >
+                <Bot className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1 text-left">Assistants</span>
+                <span className="text-[10px] font-normal normal-case tracking-normal opacity-70">
+                  {assistants.length}/{maxAssistants}
+                </span>
+                {assistantsExpanded ? (
+                  <ChevronUp className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+              </button>
+
+              {/* Assistants list */}
+              {assistantsExpanded && (
+                <div className="space-y-0.5 mt-1">
+                  {isLoading && (
+                    <div className="flex justify-center py-3">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-sidebar-muted" />
+                    </div>
+                  )}
+
+                  {assistants.map((a: Assistant) => {
+                    const settings = (a.settings || {}) as Record<string, unknown>;
+                    const emoji = (settings.emoji as string) || "";
+                    const role = (settings.role as string) || a.model;
+                    const assistantPath = `/app/assistant/${a.id}`;
+
+                    return (
+                      <Link
+                        key={a.id}
+                        to={assistantPath}
+                        className={cn(
+                          "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors w-full text-left group",
+                          location.pathname === assistantPath
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                            : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        )}
+                      >
+                        {emoji ? (
+                          <span className="text-sm shrink-0">{emoji}</span>
+                        ) : (
+                          <Bot className="h-3.5 w-3.5 shrink-0 text-sidebar-muted" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] font-medium text-sidebar-accent-foreground truncate">{a.name}</div>
+                          <div className="text-[10px] text-sidebar-muted truncate">{role}</div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+
+                  {/* Add assistant button */}
+                  {!isAtLimit && !isLoading && (
+                    <button
+                      onClick={() => setIsModalOpen(true)}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors w-full text-left text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    >
+                      <Plus className="h-3.5 w-3.5 shrink-0" />
+                      <span className="text-[13px]">Ajouter</span>
+                    </button>
+                  )}
+                  {isAtLimit && !isLoading && (
+                    <Link
+                      to="/app/billing"
+                      className="flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[11px] transition-colors w-full text-left text-sidebar-muted hover:text-sidebar-accent-foreground"
+                    >
+                      Limite atteinte · Upgrader
+                    </Link>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Collapsed: show assistant icons */}
+              <Link
+                to="/app/assistants"
+                className="flex items-center justify-center py-2 rounded-md transition-colors w-full text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                title="Assistants"
+              >
+                <Bot className="h-4 w-4" />
+              </Link>
+              {assistants.map((a: Assistant) => {
+                const settings = (a.settings || {}) as Record<string, unknown>;
+                const emoji = (settings.emoji as string) || "";
+                const assistantPath = `/app/assistant/${a.id}`;
+
+                return (
+                  <Link
+                    key={a.id}
+                    to={assistantPath}
+                    className={cn(
+                      "flex items-center justify-center py-1.5 rounded-md transition-colors w-full",
+                      location.pathname === assistantPath
+                        ? "bg-sidebar-accent"
+                        : "text-muted-foreground hover:bg-sidebar-accent"
+                    )}
+                    title={a.name}
+                  >
+                    {emoji ? (
+                      <span className="text-sm">{emoji}</span>
+                    ) : (
+                      <Bot className="h-3.5 w-3.5 text-sidebar-muted" />
+                    )}
+                  </Link>
+                );
+              })}
+            </>
+          )}
         </div>
 
-        {isLoading && (
-          <div className="flex justify-center py-4">
-            <Loader2 className="h-4 w-4 animate-spin text-sidebar-muted" />
-          </div>
-        )}
-
-        {!collapsed &&
-          assistants.map((a: Assistant) => {
-            const settings = (a.settings || {}) as Record<string, unknown>;
-            const emoji = (settings.emoji as string) || "";
-            const role = (settings.role as string) || a.model;
-            const assistantPath = `/app/assistant/${a.id}`;
-
-            return (
-              <Link
-                key={a.id}
-                to={assistantPath}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors w-full text-left group",
-                  location.pathname === assistantPath
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-              >
-                {emoji ? (
-                  <span className="text-base shrink-0">{emoji}</span>
-                ) : (
-                  <Bot className="h-4 w-4 shrink-0 text-sidebar-muted" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-sidebar-accent-foreground truncate">{a.name}</div>
-                  <div className="text-[11px] text-sidebar-muted truncate">{role}</div>
-                </div>
-                <MessageSquare className="h-3.5 w-3.5 text-sidebar-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-              </Link>
-            );
-          })}
-
-        {collapsed &&
-          assistants.map((a: Assistant) => {
-            const settings = (a.settings || {}) as Record<string, unknown>;
-            const emoji = (settings.emoji as string) || "";
-            const assistantPath = `/app/assistant/${a.id}`;
-
-            return (
-              <Link
-                key={a.id}
-                to={assistantPath}
-                className={cn(
-                  "flex items-center justify-center py-2 rounded-md transition-colors w-full",
-                  location.pathname === assistantPath
-                    ? "bg-sidebar-accent"
-                    : "text-muted-foreground hover:bg-sidebar-accent"
-                )}
-                title={a.name}
-              >
-                {emoji ? (
-                  <span className="text-base">{emoji}</span>
-                ) : (
-                  <Bot className="h-4 w-4 text-sidebar-muted" />
-                )}
-              </Link>
-            );
-          })}
-
-        {/* Add assistant button */}
-        {!isAtLimit && !isLoading && !collapsed && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors w-full text-left text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mt-1"
+        {/* Facturation + Réglages */}
+        <div className="p-2 space-y-0.5 border-t border-sidebar-border/50">
+          <Link
+            to="/app/billing"
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
           >
-            <Plus className="h-4 w-4 shrink-0" />
-            <span>Ajouter un assistant</span>
-          </button>
-        )}
-        {!isAtLimit && !isLoading && collapsed && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center justify-center py-2 rounded-md transition-colors w-full text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mt-1"
-            title="Ajouter un assistant"
+            <CreditCard className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>Facturation</span>}
+          </Link>
+          <Link
+            to="/app/profile"
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
           >
-            <Plus className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Bottom */}
-      <div className="border-t border-sidebar-border p-2 space-y-0.5">
-        <Link
-          to="/app/billing"
-          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-        >
-          <CreditCard className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Facturation</span>}
-        </Link>
-        <Link
-          to="/app/profile"
-          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-        >
-          <Settings className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Réglages</span>}
-        </Link>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggle}
-          className="w-full flex justify-center text-sidebar-muted hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/50"
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </Button>
+            <Settings className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>Réglages</span>}
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggle}
+            className="w-full flex justify-center text-sidebar-muted hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/50"
+          >
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
       {/* Create assistant modal */}
       <AssistantModal

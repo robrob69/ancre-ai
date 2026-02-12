@@ -39,12 +39,19 @@ function ReadOnlyLineItems({
 }: {
   block: DocBlock
 }) {
-  const items = block.items || []
+  const rawItems = block.items || []
   const currency = block.currency || "EUR"
-  const grandTotal = items.reduce(
-    (sum, item) => sum + (item.total ?? 0),
-    0
-  )
+
+  // Normalize: AI may return strings instead of numbers
+  const items = rawItems.map((item) => ({
+    ...item,
+    quantity: Number(item.quantity) || 0,
+    unit_price: Number(item.unit_price) || 0,
+    tax_rate: Number(item.tax_rate) || 0,
+    total: Number(item.total) || 0,
+  }))
+
+  const grandTotal = items.reduce((sum, item) => sum + item.total, 0)
 
   if (items.length === 0) return null
 
@@ -64,14 +71,14 @@ function ReadOnlyLineItems({
         {items.map((item) => (
           <tr key={item.id} className="border-b border-border/50">
             <td className="py-2">{item.description || ""}</td>
-            <td className="py-2 text-right">{item.quantity ?? 0}</td>
+            <td className="py-2 text-right">{item.quantity}</td>
             <td className="py-2">{item.unit || ""}</td>
             <td className="py-2 text-right">
-              {(item.unit_price ?? 0).toFixed(2)} {currency}
+              {item.unit_price.toFixed(2)} {currency}
             </td>
-            <td className="py-2 text-right">{item.tax_rate ?? 0}%</td>
+            <td className="py-2 text-right">{item.tax_rate}%</td>
             <td className="py-2 text-right font-medium">
-              {(item.total ?? 0).toFixed(2)} {currency}
+              {item.total.toFixed(2)} {currency}
             </td>
           </tr>
         ))}

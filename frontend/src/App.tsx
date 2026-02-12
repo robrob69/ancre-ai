@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom"
+import { Routes, Route, Navigate } from "react-router-dom"
 import { SignIn, SignUp } from "@clerk/clerk-react"
 import { Toaster } from "@/components/ui/toaster"
 import { Toaster as Sonner } from "@/components/ui/sonner"
@@ -17,7 +17,6 @@ import { CGVPage } from "@/pages/cgv"
 // Protected pages
 import { DashboardPage } from "@/pages/dashboard"
 import { AssistantsPage } from "@/pages/assistants"
-import { ChatPage } from "@/pages/chat"
 import { DocumentsPage } from "@/pages/documents"
 import { DocumentEditorPage } from "@/pages/document-editor"
 import { ProfilePage } from "@/pages/profile"
@@ -74,7 +73,8 @@ function App() {
         >
           <Route path="/app" element={<DashboardPage />} />
           <Route path="/app/assistants" element={<AssistantsPage />} />
-          <Route path="/app/assistants/:id" element={<ChatPage />} />
+          {/* Redirect old chat route to assistant config page */}
+          <Route path="/app/assistants/:id" element={<Navigate to="/app/assistants" replace />} />
           <Route path="/app/documents" element={<DocumentsPage />} />
           <Route path="/app/documents/:id" element={<DocumentEditorPage />} />
           <Route path="/app/profile" element={<ProfilePage />} />

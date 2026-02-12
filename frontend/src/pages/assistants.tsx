@@ -6,9 +6,9 @@ import {
   Bot,
   Settings,
   Trash2,
-  MessageSquare,
   AlertCircle,
   Plug,
+  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -88,8 +88,8 @@ export function AssistantsPage() {
     setDeletingAssistant(assistant)
   }
 
-  const handleChatClick = (assistant: Assistant) => {
-    navigate(`/app/assistants/${assistant.id}`)
+  const handleConfigClick = (assistant: Assistant) => {
+    navigate(`/app/assistant/${assistant.id}`)
   }
 
   const isAtLimit = assistants && assistants.length >= maxAssistants
@@ -115,7 +115,7 @@ export function AssistantsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Mes assistants</h1>
           <p className="mt-1 text-muted-foreground">
-            Gérez vos assistants IA personnalisés
+            Configurez les assistants qui alimentent vos documents, emails et recherches
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -229,10 +229,10 @@ export function AssistantsPage() {
                 <Button
                   variant="default"
                   className="flex-1"
-                  onClick={() => handleChatClick(assistant)}
+                  onClick={() => handleConfigClick(assistant)}
                 >
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  Discuter
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Configurer
                 </Button>
                 <Button
                   variant="outline"

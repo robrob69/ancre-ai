@@ -1,7 +1,25 @@
 import { useNavigate } from "react-router-dom";
-import { FileText, Mail, Search, Mic, SendHorizontal } from "lucide-react";
-import { useState } from "react";
+import {
+  FileText,
+  Mail,
+  Search,
+  Mic,
+  SendHorizontal,
+  MessageSquare,
+  Clock,
+  ArrowRight,
+  Send,
+  FileEdit,
+  ChevronRight,
+} from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { workspaceDocumentsApi } from "@/api/workspace-documents";
+import { assistantsApi } from "@/api/assistants";
+import { chatApi } from "@/api/chat";
+import type { Assistant } from "@/types";
 
 const actions = [
   {
@@ -27,14 +45,207 @@ const actions = [
   },
 ];
 
+// Mock emails (same source as email-composer until a real API is available)
+const MOCK_EMAILS = [
+  { subject: "Relance devis TechCo", to: "j.martin@techco.fr", date: "2026-02-10", status: "Envoyé" },
+  { subject: "Proposition commerciale Q1", to: "j.martin@techco.fr", date: "2026-01-28", status: "Envoyé" },
+  { subject: "Proposition partenariat Acme", to: "contact@acme.com", date: "2026-02-08", status: "Brouillon" },
+  { subject: "Confirmation RDV vendredi", to: "s.dupont@client.fr", date: "2026-02-07", status: "Envoyé" },
+  { subject: "Suivi projet phase 2", to: "s.dupont@client.fr", date: "2026-02-01", status: "Envoyé" },
+  { subject: "Demande d'informations RGPD", to: "legal@partenaire.fr", date: "2026-02-05", status: "Envoyé" },
+  { subject: "Suivi onboarding nouveau client", to: "n.bernard@newco.fr", date: "2026-02-03", status: "Brouillon" },
+];
+
+// ── Unified history item ──
+
+interface HistoryItem {
+  id: string;
+  type: "document" | "email" | "conversation";
+  title: string;
+  subtitle: string;
+  date: string;
+  sortDate: number;
+  status?: string;
+  path: string;
+}
+
+function formatRelativeDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "À l'instant";
+  if (diffMins < 60) return `Il y a ${diffMins} min`;
+  if (diffHours < 24) return `Il y a ${diffHours}h`;
+  if (diffDays < 7) return `Il y a ${diffDays}j`;
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  contract: "Contrat",
+  quote: "Devis",
+  invoice: "Facture",
+  nda: "NDA",
+  report: "Rapport",
+  note: "Note",
+  email: "Email",
+  other: "Document",
+};
+
+const DOC_STATUS_LABELS: Record<string, string> = {
+  draft: "Brouillon",
+  review: "En relecture",
+  final: "Finalisé",
+  archived: "Archivé",
+};
+
+// ── Tab filter ──
+
+type HistoryFilter = "all" | "document" | "email" | "conversation";
+
+const FILTER_TABS: { value: HistoryFilter; label: string; icon: typeof FileText }[] = [
+  { value: "all", label: "Tout", icon: Clock },
+  { value: "document", label: "Documents", icon: FileText },
+  { value: "email", label: "Emails", icon: Mail },
+  { value: "conversation", label: "Discussions", icon: MessageSquare },
+];
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [filter, setFilter] = useState<HistoryFilter>("all");
+
+  // ── Fetch documents ──
+  const { data: documents = [] } = useQuery({
+    queryKey: ["workspace-documents"],
+    queryFn: () => workspaceDocumentsApi.list(),
+    staleTime: 30_000,
+  });
+
+  // ── Fetch assistants ──
+  const { data: assistants = [] } = useQuery({
+    queryKey: ["assistants"],
+    queryFn: () => assistantsApi.list(),
+    staleTime: 30_000,
+  });
+
+  // ── Fetch conversations for each assistant ──
+  const [conversations, setConversations] = useState<
+    Array<{
+      id: string;
+      title: string;
+      last_message_at: string;
+      message_count: number;
+      assistant: Assistant;
+    }>
+  >([]);
+
+  useEffect(() => {
+    if (assistants.length === 0) return;
+
+    const fetchAll = async () => {
+      const results = await Promise.allSettled(
+        assistants.map(async (a) => {
+          const convos = await chatApi.listConversations(a.id);
+          return convos.map((c) => ({ ...c, assistant: a }));
+        })
+      );
+
+      const allConvos = results
+        .filter((r): r is PromiseFulfilledResult<typeof conversations> => r.status === "fulfilled")
+        .flatMap((r) => r.value);
+
+      setConversations(allConvos);
+    };
+
+    fetchAll();
+  }, [assistants]);
+
+  // ── Build unified history ──
+  const historyItems = useMemo<HistoryItem[]>(() => {
+    const items: HistoryItem[] = [];
+
+    // Documents
+    for (const doc of documents) {
+      items.push({
+        id: `doc-${doc.id}`,
+        type: "document",
+        title: doc.title || "Sans titre",
+        subtitle: DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type,
+        date: formatRelativeDate(doc.updated_at),
+        sortDate: new Date(doc.updated_at).getTime(),
+        status: DOC_STATUS_LABELS[doc.status] || doc.status,
+        path: `/app/documents/${doc.id}`,
+      });
+    }
+
+    // Emails (mock)
+    for (const email of MOCK_EMAILS) {
+      items.push({
+        id: `email-${email.subject}`,
+        type: "email",
+        title: email.subject,
+        subtitle: `À : ${email.to}`,
+        date: formatRelativeDate(email.date),
+        sortDate: new Date(email.date).getTime(),
+        status: email.status,
+        path: "/app/email",
+      });
+    }
+
+    // Conversations
+    for (const convo of conversations) {
+      items.push({
+        id: `convo-${convo.id}`,
+        type: "conversation",
+        title: convo.title || "Nouvelle discussion",
+        subtitle: convo.assistant.name,
+        date: formatRelativeDate(convo.last_message_at),
+        sortDate: new Date(convo.last_message_at).getTime(),
+        status: `${convo.message_count} msg`,
+        path: `/app/assistant/${convo.assistant.id}`,
+      });
+    }
+
+    // Sort by most recent
+    items.sort((a, b) => b.sortDate - a.sortDate);
+    return items;
+  }, [documents, conversations]);
+
+  const filteredItems = filter === "all"
+    ? historyItems
+    : historyItems.filter((i) => i.type === filter);
+
+  const typeIcon = (type: HistoryItem["type"]) => {
+    switch (type) {
+      case "document":
+        return <FileEdit className="h-4 w-4 text-blue-500" />;
+      case "email":
+        return <Send className="h-4 w-4 text-emerald-500" />;
+      case "conversation":
+        return <MessageSquare className="h-4 w-4 text-violet-500" />;
+    }
+  };
+
+  const typeBg = (type: HistoryItem["type"]) => {
+    switch (type) {
+      case "document":
+        return "bg-blue-500/10";
+      case "email":
+        return "bg-emerald-500/10";
+      case "conversation":
+        return "bg-violet-500/10";
+    }
+  };
 
   return (
-    <div className="flex h-full animate-fade-in">
-      <div className="flex-1 flex items-center justify-center p-6">
+    <div className="flex flex-col h-full animate-fade-in overflow-auto">
+      {/* Top section - actions + prompt */}
+      <div className="flex-shrink-0 flex items-center justify-center px-6 pt-8 pb-4">
         <div className="max-w-2xl w-full space-y-6 text-center">
           <div className="space-y-2">
             <h1 className="font-display text-2xl font-bold text-foreground">
@@ -99,6 +310,90 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Activity history section */}
+      {historyItems.length > 0 && (
+        <div className="flex-shrink-0 px-6 pb-8">
+          <div className="max-w-3xl mx-auto">
+            {/* Section header */}
+            <div className="flex items-center gap-3 mb-4 mt-2">
+              <div className="h-px flex-1 bg-border" />
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Clock className="h-3.5 w-3.5" />
+                Activité récente
+              </div>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            {/* Filter tabs */}
+            <div className="flex items-center gap-1 mb-4 bg-muted/50 rounded-lg p-1 w-fit mx-auto">
+              {FILTER_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  onClick={() => setFilter(tab.value)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    filter === tab.value
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <tab.icon className="h-3 w-3" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Items list */}
+            <div className="space-y-1.5">
+              {filteredItems.slice(0, 15).map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => navigate(item.path)}
+                  className="group flex items-center gap-3 w-full px-4 py-3 rounded-lg bg-card border border-border hover:shadow-soft hover:border-primary/20 transition-all text-left"
+                >
+                  <div className={`w-8 h-8 rounded-lg ${typeBg(item.type)} flex items-center justify-center shrink-0`}>
+                    {typeIcon(item.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-foreground truncate">
+                      {item.title}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {item.subtitle}
+                    </div>
+                  </div>
+                  {item.status && (
+                    <Badge variant="outline" className="shrink-0 text-[10px] hidden sm:inline-flex">
+                      {item.status}
+                    </Badge>
+                  )}
+                  <span className="text-[11px] text-muted-foreground shrink-0 hidden sm:block">
+                    {item.date}
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                </button>
+              ))}
+            </div>
+
+            {/* Show more hint */}
+            {filteredItems.length > 15 && (
+              <div className="text-center mt-3">
+                <button
+                  onClick={() => {
+                    if (filter === "document") navigate("/app/documents");
+                    else if (filter === "email") navigate("/app/email");
+                    else navigate("/app/documents");
+                  }}
+                  className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                >
+                  Voir tout
+                  <ArrowRight className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

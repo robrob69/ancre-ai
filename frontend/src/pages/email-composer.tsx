@@ -1,8 +1,9 @@
-import { Mail, Download, Clock, Search, Send, ChevronRight, ArrowLeft, Reply, Forward, Mic, Plus, Sparkles } from "lucide-react";
+import { Mail, Download, Clock, Search, Send, ChevronRight, ArrowLeft, Reply, Forward, Mic, Plus, Sparkles, Bot } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Select,
   SelectContent,
@@ -10,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { assistantsApi } from "@/api/assistants";
+import type { Assistant } from "@/types";
 
 interface EmailData {
   subject: string;
@@ -119,7 +122,22 @@ export const EmailComposer = () => {
   const [composeBody, setComposeBody] = useState("");
   const [composeTone, setComposeTone] = useState("Diplomate");
   const [isRecording, setIsRecording] = useState(false);
+  const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+
+  // Fetch assistants for context selection
+  const { data: assistants = [] } = useQuery({
+    queryKey: ["assistants"],
+    queryFn: assistantsApi.list,
+    staleTime: 30_000,
+  });
+
+  // Auto-select first assistant
+  useEffect(() => {
+    if (assistants.length > 0 && !selectedAssistantId) {
+      setSelectedAssistantId(assistants[0].id);
+    }
+  }, [assistants, selectedAssistantId]);
 
   const filtered = search
     ? contacts.filter(
@@ -208,15 +226,15 @@ export const EmailComposer = () => {
       <div className="flex items-center gap-2 sm:gap-3 h-auto min-h-[3.5rem] px-3 sm:px-5 py-2 border-b border-border bg-surface-elevated shrink-0 flex-wrap">
         <Mail className="h-4 w-4 text-primary shrink-0 hidden sm:block" />
         <h1 className="font-display font-semibold text-foreground text-sm sm:text-base">Emails</h1>
-        <span className="text-xs text-muted-foreground hidden sm:inline">{totalEmails} emails · {contacts.length} contacts</span>
+        <span className="text-xs text-muted-foreground hidden lg:inline">{totalEmails} emails · {contacts.length} contacts</span>
         <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
+          <div className="relative hidden sm:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Rechercher un contact…"
+              placeholder="Rechercher…"
               value={search}
               onChange={(e) => { setSearch(e.target.value); setSelectedContact(null); setSelectedEmail(null); }}
-              className="pl-9 h-9 w-40 sm:w-56 text-sm"
+              className="pl-9 h-9 w-36 lg:w-56 text-sm"
             />
           </div>
           <Button
@@ -270,12 +288,12 @@ export const EmailComposer = () => {
                   </div>
                 </div>
 
-                {/* Tone selector bar */}
-                <div className="px-4 py-2.5 border-b border-border/50 flex items-center gap-3 bg-muted/30">
+                {/* Tone + Assistant selector bar */}
+                <div className="px-4 py-2.5 border-b border-border/50 flex items-center gap-3 bg-muted/30 flex-wrap">
                   <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
                   <span className="text-xs text-muted-foreground shrink-0">Ton :</span>
                   <Select value={composeTone} onValueChange={setComposeTone}>
-                    <SelectTrigger className="w-32 h-7 text-xs border-0 bg-transparent shadow-none px-1">
+                    <SelectTrigger className="w-28 h-7 text-xs border-0 bg-transparent shadow-none px-1">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -284,6 +302,23 @@ export const EmailComposer = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {assistants.length > 0 && (
+                    <>
+                      <div className="w-px h-4 bg-border/50" />
+                      <Bot className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <select
+                        value={selectedAssistantId || ""}
+                        onChange={(e) => setSelectedAssistantId(e.target.value)}
+                        className="bg-transparent border-0 text-xs text-muted-foreground hover:text-foreground outline-none cursor-pointer py-0.5 pr-4 max-w-[140px] truncate"
+                      >
+                        {assistants.map((a: Assistant) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
                 </div>
 
                 {/* Body */}
@@ -345,7 +380,7 @@ export const EmailComposer = () => {
         {/* Contact list + email detail (hidden when composing) */}
         {!composing && (
           <>
-            <div className={`${selectedContact ? "hidden sm:block sm:w-72 border-r border-border" : "flex-1"} overflow-auto bg-surface transition-all shrink-0`}>
+            <div className={`${selectedContact ? "hidden sm:block sm:w-56 lg:w-72 border-r border-border" : "flex-1"} overflow-auto bg-surface transition-all shrink-0`}>
               <div className={`${selectedContact ? "" : "max-w-3xl mx-auto"} p-3 sm:p-4 space-y-1`}>
                 {filtered.map((contact) => (
                   <button
@@ -375,7 +410,7 @@ export const EmailComposer = () => {
 
             {/* Email list + detail */}
             {selectedContact && (
-              <div className="flex-1 overflow-hidden flex flex-col animate-fade-in">
+              <div className="flex-1 overflow-hidden flex flex-col animate-fade-in min-w-0">
                 {!selectedEmail ? (
                   <div className="flex-1 overflow-auto p-3 sm:p-5">
                     <div className="max-w-2xl mx-auto space-y-4">
@@ -386,7 +421,7 @@ export const EmailComposer = () => {
                         <div className="w-10 sm:w-12 h-10 sm:h-12 rounded-full bg-muted flex items-center justify-center font-display font-bold text-foreground shrink-0">
                           {selectedContact.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <h2 className="font-display font-semibold text-foreground text-sm sm:text-base truncate">{selectedContact.name}</h2>
                           <div className="text-xs text-muted-foreground truncate">{selectedContact.email} · {selectedContact.company}</div>
                         </div>
@@ -396,116 +431,118 @@ export const EmailComposer = () => {
                           <button
                             key={email.subject}
                             onClick={() => setSelectedEmail(email)}
-                            className="group flex items-center gap-4 w-full px-4 py-4 rounded-lg bg-card border border-border hover:shadow-soft hover:border-primary/20 transition-all text-left"
+                            className="group flex items-center gap-3 sm:gap-4 w-full px-3 sm:px-4 py-3 sm:py-4 rounded-lg bg-card border border-border hover:shadow-soft hover:border-primary/20 transition-all text-left"
                           >
-                            <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shrink-0">
-                              <Mail className="h-4 w-4 text-primary" />
+                            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-accent flex items-center justify-center shrink-0">
+                              <Mail className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-medium text-foreground truncate">{email.subject}</div>
                               <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
-                                <Clock className="h-3 w-3" />
+                                <Clock className="h-3 w-3 shrink-0" />
                                 <span>{email.date}</span>
                               </div>
                             </div>
-                            <Badge variant={email.status === "Envoyé" ? "default" : "outline"}>{email.status}</Badge>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <Badge variant={email.status === "Envoyé" ? "default" : "outline"} className="shrink-0 hidden sm:inline-flex">{email.status}</Badge>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                           </button>
                         ))}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex-1 overflow-auto">
-                    <div className="border-b border-border bg-surface-elevated px-5 py-3 flex items-center gap-3 shrink-0">
+                  <div className="flex-1 overflow-hidden flex flex-col">
+                    <div className="border-b border-border bg-surface-elevated px-3 sm:px-5 py-3 flex items-center gap-2 sm:gap-3 shrink-0">
                       <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 h-8 w-8">
                         <ArrowLeft className="h-4 w-4" />
                       </Button>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold text-foreground truncate">{selectedEmail.subject}</div>
-                        <div className="text-xs text-muted-foreground">À : {selectedContact.email} · {selectedEmail.date}</div>
+                        <div className="text-xs text-muted-foreground truncate">À : {selectedContact.email} · {selectedEmail.date}</div>
                       </div>
-                      <Badge variant={selectedEmail.status === "Envoyé" ? "default" : "outline"}>{selectedEmail.status}</Badge>
+                      <Badge variant={selectedEmail.status === "Envoyé" ? "default" : "outline"} className="shrink-0">{selectedEmail.status}</Badge>
                     </div>
 
-                    <div className="max-w-2xl mx-auto p-6 space-y-6">
-                      <div className="bg-card border border-border rounded-lg p-6 shadow-soft">
-                        <div className="flex items-center gap-3 pb-4 mb-4 border-b border-border">
-                          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center font-display font-semibold text-xs text-foreground">
-                            PD
+                    <div className="flex-1 overflow-auto">
+                      <div className="max-w-2xl mx-auto p-3 sm:p-6 space-y-4 sm:space-y-6 pb-8">
+                        <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-soft">
+                          <div className="flex items-center gap-3 pb-4 mb-4 border-b border-border">
+                            <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center font-display font-semibold text-xs text-foreground shrink-0">
+                              PD
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium text-foreground">Pierre Durand</div>
+                              <div className="text-xs text-muted-foreground truncate">à {selectedContact.name} ({selectedContact.email})</div>
+                            </div>
+                            <div className="ml-auto text-xs text-muted-foreground shrink-0 hidden sm:block">{selectedEmail.date}</div>
                           </div>
-                          <div>
-                            <div className="text-sm font-medium text-foreground">Pierre Durand</div>
-                            <div className="text-xs text-muted-foreground">à {selectedContact.name} ({selectedContact.email})</div>
+                          <div className="text-sm leading-relaxed text-foreground whitespace-pre-line">
+                            {selectedEmail.body}
                           </div>
-                          <div className="ml-auto text-xs text-muted-foreground">{selectedEmail.date}</div>
                         </div>
-                        <div className="text-sm leading-relaxed text-foreground whitespace-pre-line">
-                          {selectedEmail.body}
-                        </div>
-                      </div>
 
-                      {!replying && (
-                        <div className="flex items-center gap-2">
-                          <Button variant="action" size="sm" className="gap-1.5" onClick={() => setReplying(true)}>
-                            <Reply className="h-3.5 w-3.5" />
-                            Répondre
-                          </Button>
-                          <Button variant="outline" size="sm" className="gap-1.5">
-                            <Forward className="h-3.5 w-3.5" />
-                            Transférer
-                          </Button>
-                          <Button variant="outline" size="sm" className="gap-1.5">
-                            <Download className="h-3.5 w-3.5" />
-                            PDF
-                          </Button>
-                        </div>
-                      )}
+                        {!replying && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Button variant="action" size="sm" className="gap-1.5" onClick={() => setReplying(true)}>
+                              <Reply className="h-3.5 w-3.5" />
+                              Répondre
+                            </Button>
+                            <Button variant="outline" size="sm" className="gap-1.5">
+                              <Forward className="h-3.5 w-3.5" />
+                              Transférer
+                            </Button>
+                            <Button variant="outline" size="sm" className="gap-1.5">
+                              <Download className="h-3.5 w-3.5" />
+                              PDF
+                            </Button>
+                          </div>
+                        )}
 
-                      {replying && (
-                        <div className="bg-card border border-border rounded-lg shadow-soft animate-fade-in">
-                          <div className="px-4 py-3 border-b border-border flex items-center gap-3">
-                            <Reply className="h-4 w-4 text-primary" />
-                            <span className="text-sm font-medium text-foreground">Réponse à {selectedContact.name}</span>
-                            <div className="ml-auto flex items-center gap-2">
-                              <Select defaultValue="Diplomate">
-                                <SelectTrigger className="w-32 h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {tones.map((t) => (
-                                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                        {replying && (
+                          <div className="bg-card border border-border rounded-lg shadow-soft animate-fade-in">
+                            <div className="px-3 sm:px-4 py-3 border-b border-border flex items-center gap-2 sm:gap-3 flex-wrap">
+                              <Reply className="h-4 w-4 text-primary shrink-0" />
+                              <span className="text-sm font-medium text-foreground truncate">Réponse à {selectedContact.name}</span>
+                              <div className="ml-auto flex items-center gap-2">
+                                <Select defaultValue="Diplomate">
+                                  <SelectTrigger className="w-28 sm:w-32 h-8 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {tones.map((t) => (
+                                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="relative">
+                              <textarea
+                                value={replyBody}
+                                onChange={(e) => setReplyBody(e.target.value)}
+                                className="w-full min-h-[150px] sm:min-h-[180px] p-3 sm:p-4 pr-14 text-sm leading-relaxed bg-transparent outline-none resize-none text-foreground placeholder:text-muted-foreground"
+                                placeholder="Rédigez votre réponse ou dictez-la…"
+                                autoFocus
+                              />
+                              <button
+                                className="absolute right-3 bottom-3 w-9 h-9 rounded-full flex items-center justify-center bg-muted hover:bg-accent/20 text-muted-foreground hover:text-foreground transition-all"
+                                title="Dicter"
+                              >
+                                <Mic className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="px-3 sm:px-4 py-3 border-t border-border flex items-center gap-2">
+                              <Button variant="premium" size="sm" className="gap-1.5">
+                                <Send className="h-3.5 w-3.5" />
+                                Envoyer
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => { setReplying(false); setReplyBody(""); }}>
+                                Annuler
+                              </Button>
                             </div>
                           </div>
-                          <div className="relative">
-                            <textarea
-                              value={replyBody}
-                              onChange={(e) => setReplyBody(e.target.value)}
-                              className="w-full min-h-[180px] p-4 pr-14 text-sm leading-relaxed bg-transparent outline-none resize-none text-foreground placeholder:text-muted-foreground"
-                              placeholder="Rédigez votre réponse ou dictez-la…"
-                              autoFocus
-                            />
-                            <button
-                              className="absolute right-3 bottom-3 w-9 h-9 rounded-full flex items-center justify-center bg-muted hover:bg-accent/20 text-muted-foreground hover:text-foreground transition-all"
-                              title="Dicter"
-                            >
-                              <Mic className="h-4 w-4" />
-                            </button>
-                          </div>
-                          <div className="px-4 py-3 border-t border-border flex items-center gap-2">
-                            <Button variant="premium" size="sm" className="gap-1.5">
-                              <Send className="h-3.5 w-3.5" />
-                              Envoyer
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => { setReplying(false); setReplyBody(""); }}>
-                              Annuler
-                            </Button>
-                          </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
