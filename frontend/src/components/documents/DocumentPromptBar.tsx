@@ -156,6 +156,7 @@ export function DocumentPromptBar({
   const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
+  const wantsRecordingRef = useRef(false)
 
   const { updateBlock, addBlock } = useDocumentStore()
 
@@ -216,48 +217,70 @@ export function DocumentPromptBar({
   // ── Speech Recognition ──
 
   const startRecording = useCallback(() => {
-    const SpeechRecognition =
+    const SpeechRecognitionCtor =
       window.SpeechRecognition || window.webkitSpeechRecognition
 
-    if (!SpeechRecognition) {
+    if (!SpeechRecognitionCtor) {
       setError("La reconnaissance vocale n'est pas supportee par ce navigateur.")
       return
     }
 
-    const recognition = new SpeechRecognition()
+    // Stop any existing recording first
+    if (recognitionRef.current) {
+      wantsRecordingRef.current = false
+      recognitionRef.current.stop()
+      recognitionRef.current = null
+    }
+
+    wantsRecordingRef.current = true
+    const recognition = new SpeechRecognitionCtor()
     recognition.continuous = true
     recognition.interimResults = true
     recognition.lang = "fr-FR"
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let finalTranscript = ""
-      let interimTranscript = ""
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i]
-        if (result.isFinal) {
-          finalTranscript += result[0].transcript
-        } else {
-          interimTranscript += result[0].transcript
+        if (result?.isFinal) {
+          finalTranscript += result[0]?.transcript ?? ""
         }
       }
 
       if (finalTranscript) {
         setPrompt((prev) => {
-          const separator = prev && !prev.endsWith(" ") ? " " : ""
+          const separator = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : ""
           return prev + separator + finalTranscript
         })
       }
     }
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      if (event.error !== "aborted") {
-        setError(`Erreur de reconnaissance vocale: ${event.error}`)
+      if (event.error === "aborted") return
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setError("Acces au microphone refuse.")
+        wantsRecordingRef.current = false
+        recognitionRef.current = null
+        setIsRecording(false)
+        return
       }
-      setIsRecording(false)
+      setError(`Erreur de reconnaissance vocale: ${event.error}`)
     }
 
     recognition.onend = () => {
+      // Auto-restart if user hasn't clicked stop
+      if (wantsRecordingRef.current) {
+        try {
+          recognition.start()
+        } catch {
+          wantsRecordingRef.current = false
+          recognitionRef.current = null
+          setIsRecording(false)
+        }
+        return
+      }
+      recognitionRef.current = null
       setIsRecording(false)
     }
 
@@ -268,11 +291,11 @@ export function DocumentPromptBar({
   }, [])
 
   const stopRecording = useCallback(() => {
+    wantsRecordingRef.current = false
     if (recognitionRef.current) {
       recognitionRef.current.stop()
-      recognitionRef.current = null
+      // onend will fire and clean up since wantsRecording is false
     }
-    setIsRecording(false)
   }, [])
 
   const toggleRecording = useCallback(() => {
