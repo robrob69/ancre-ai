@@ -36,7 +36,7 @@ class Assistant(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     system_prompt: Mapped[str | None] = mapped_column(Text)
-    model: Mapped[str] = mapped_column(String(100), default="gpt-4o-mini")
+    model: Mapped[str] = mapped_column(String(100), default="mistral-medium-latest")
     settings: Mapped[dict | None] = mapped_column(JSONB, default=dict)
     
     created_at: Mapped[datetime] = mapped_column(

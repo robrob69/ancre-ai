@@ -11,7 +11,7 @@ class AssistantBase(BaseModel):
 
     name: str
     system_prompt: str | None = None
-    model: str = "gpt-4o-mini"
+    model: str = "mistral-medium-latest"
     settings: dict | None = None
 
 

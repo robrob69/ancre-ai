@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024
 
     # LLM
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "mistral-medium-latest"
     llm_max_tokens: int = 4096
 
     # Chunking

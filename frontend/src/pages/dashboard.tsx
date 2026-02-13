@@ -207,7 +207,7 @@ export function DashboardPage() {
         date: formatRelativeDate(convo.last_message_at),
         sortDate: new Date(convo.last_message_at).getTime(),
         status: `${convo.message_count} msg`,
-        path: `/app/assistant/${convo.assistant.id}`,
+        path: `/app/search?assistant=${convo.assistant.id}&conversation=${convo.id}`,
       });
     }
 

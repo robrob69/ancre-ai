@@ -35,7 +35,7 @@ const MAX_INTEGRATIONS = 2
 const assistantSchema = z.object({
   name: z.string().min(1, "Le nom est requis"),
   system_prompt: z.string().optional(),
-  model: z.string().default("gpt-4o-mini"),
+  model: z.string().default("mistral-medium-latest"),
   collection_ids: z.array(z.string()).default([]),
   integration_ids: z.array(z.string()).default([]),
 })
@@ -49,9 +49,9 @@ interface AssistantModalProps {
 }
 
 const MODELS = [
-  { value: "gpt-4o-mini", label: "GPT-4o Mini (Rapide)" },
-  { value: "gpt-4o", label: "GPT-4o (Puissant)" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+  { value: "mistral-medium-latest", label: "Mistral Medium (Recommandé)" },
+  { value: "mistral-small-latest", label: "Mistral Small (Rapide)" },
+  { value: "mistral-large-latest", label: "Mistral Large (Puissant)" },
 ]
 
 export function AssistantModal({
@@ -92,7 +92,7 @@ export function AssistantModal({
     defaultValues: {
       name: "",
       system_prompt: "",
-      model: "gpt-4o-mini",
+      model: "mistral-medium-latest",
       collection_ids: [],
       integration_ids: [],
     },
@@ -114,7 +114,7 @@ export function AssistantModal({
       reset({
         name: "",
         system_prompt: "",
-        model: "gpt-4o-mini",
+        model: "mistral-medium-latest",
         collection_ids: [],
         integration_ids: [],
       })
