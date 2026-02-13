@@ -55,7 +55,7 @@ async def transcribe_audio(
             detail="Audio file too large (max 10 MB)",
         )
 
-    # Transcribe via Whisper
+    # Transcribe via Mistral Voxtral
     text, duration = await transcription_service.transcribe(
         audio_data=audio_data,
         filename=file.filename or "audio.webm",

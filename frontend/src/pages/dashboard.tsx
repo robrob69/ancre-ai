@@ -4,6 +4,7 @@ import {
   Mail,
   Search,
   Mic,
+  MicOff,
   SendHorizontal,
   MessageSquare,
   Clock,
@@ -12,7 +13,7 @@ import {
   FileEdit,
   ChevronRight,
 } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -113,11 +114,115 @@ const FILTER_TABS: { value: HistoryFilter; label: string; icon: typeof FileText 
   { value: "conversation", label: "Discussions", icon: MessageSquare },
 ];
 
+// ── Speech Recognition types (Web Speech API) ──
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
+
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((ev: SpeechRecognitionEvent) => void) | null;
+  onerror: ((ev: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition: new () => SpeechRecognitionInstance;
+  }
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [filter, setFilter] = useState<HistoryFilter>("all");
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const wantsRecordingRef = useRef(false);
+
+  // ── Speech Recognition ──
+
+  const startRecording = useCallback(() => {
+    const SpeechRecognitionCtor =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) return;
+
+    wantsRecordingRef.current = true;
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "fr-FR";
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let finalTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript;
+        }
+      }
+      if (finalTranscript) {
+        setPrompt((prev) => {
+          const separator = prev && !prev.endsWith(" ") ? " " : "";
+          return prev + separator + finalTranscript;
+        });
+      }
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (event.error === "aborted") return;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        wantsRecordingRef.current = false;
+        recognitionRef.current = null;
+        setIsRecording(false);
+        return;
+      }
+    };
+
+    recognition.onend = () => {
+      if (wantsRecordingRef.current) {
+        try { recognition.start(); } catch { 
+          wantsRecordingRef.current = false;
+          recognitionRef.current = null;
+          setIsRecording(false);
+        }
+        return;
+      }
+      recognitionRef.current = null;
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsRecording(true);
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    wantsRecordingRef.current = false;
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+  }, []);
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
 
   // ── Fetch documents ──
   const { data: documents = [] } = useQuery({
@@ -292,7 +397,7 @@ export function DashboardPage() {
               />
               <div className="absolute right-3 bottom-3 flex items-center gap-1.5">
                 <button
-                  onClick={() => setIsRecording(!isRecording)}
+                  onClick={toggleRecording}
                   className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
                     isRecording
                       ? "bg-destructive text-destructive-foreground animate-pulse"
@@ -300,7 +405,11 @@ export function DashboardPage() {
                   }`}
                   title={isRecording ? "Arrêter la dictée" : "Dicter"}
                 >
-                  <Mic className="h-4 w-4" />
+                  {isRecording ? (
+                    <MicOff className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
                 </button>
                 <Button variant="premium" size="icon" className="h-10 w-10 rounded-full" disabled={!prompt.trim()}>
                   <SendHorizontal className="h-4 w-4" />

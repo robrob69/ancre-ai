@@ -1,18 +1,24 @@
 # Ancre
 
-> SaaS de RAG (Retrieval-Augmented Generation) multi-tenant avec assistants personnalisables.
+> SaaS de RAG (Retrieval-Augmented Generation) multi-tenant avec assistants personnalisables, recherche hybride et intégrations OAuth.
 
 ## Fonctionnalités
 
-- **Multi-tenant** — Isolation complète par tenant avec quotas et abonnements
-- **Multi-assistants** — Créez plusieurs assistants avec leurs propres collections de documents
-- **RAG Pipeline** — Upload → Parse → Chunk → Embed → Index → Query
-- **Streaming** — Réponses en temps réel via SSE
-- **Citations** — Sources citées avec numéro de page et extrait
-- **Authentification** — Clerk pour l'auth utilisateur
+- **Multi-tenant** — Isolation complète par tenant (données, fichiers, vecteurs, quotas)
+- **Multi-assistants** — Créez plusieurs assistants avec leurs propres collections de documents et connecteurs
+- **RAG Hybride** — Recherche keyword (PostgreSQL FTS) + vectorielle (Qdrant) fusionnée par RRF + reranking
+- **Streaming** — Réponses en temps réel via SSE avec tool-calling itératif
+- **Citations** — Sources citées avec nom de fichier, numéro de page et extrait
+- **Documents** — Éditeur de documents structurés avec IA (contrats, devis, NDA…)
+- **Emails** — Compositeur d'emails assisté par IA avec contexte RAG
+- **Recherche** — Interface de recherche avec historique, reprise de conversations et dictée vocale
+- **Dictée vocale** — Reconnaissance vocale native (Web Speech API) sur toutes les pages
+- **Generative UI** — Blocs dynamiques (KPIs, tableaux, étapes) générés par le LLM
+- **Connecteurs OAuth** — Intégrations HubSpot, Gmail, Google Drive, Notion, Slack, etc. via Nango
+- **Authentification** — Clerk pour l'auth utilisateur (JWT + JWKS)
 - **Billing** — Stripe pour les abonnements (Free / Pro)
 
-## Stack
+## Stack technique
 
 | Composant | Technologie |
 |-----------|-------------|
@@ -20,16 +26,146 @@
 | **Frontend** | React 18, Vite 6, TypeScript |
 | **UI** | TailwindCSS, shadcn/ui (Radix UI), Lucide icons |
 | **State / Data** | TanStack Query (React Query), Zustand |
-| **Base de données** | PostgreSQL 16 |
-| **Vector Store** | Qdrant |
+| **Base de données** | PostgreSQL 16 (+ Full-Text Search via TSVECTOR) |
+| **Vector Store** | Qdrant (cosine similarity) |
 | **Stockage fichiers** | MinIO (dev) / S3 (prod) |
-| **File d’attente** | Arq + Redis 7 |
+| **File d'attente** | Arq + Redis 7 |
 | **Auth** | Clerk (JWT + JWKS) |
 | **Billing** | Stripe |
-| **LLM / Embeddings** | OpenAI (GPT-4o-mini, text-embedding-3-small) |
-| **Chat / RAG** | SSE streaming, Assistant UI (composer, dictée) |
+| **LLM** | Mistral (`mistral-medium-latest`) via API OpenAI-compatible |
+| **Embeddings** | Mistral (`mistral-embed`, 1024 dimensions) |
+| **Reranking** | HuggingFace Inference Endpoint (primaire) / Mistral (fallback) |
+| **Transcription** | Mistral Voxtral (`mistral-stt-latest`) |
+| **OCR** | Mistral OCR (`mistral-ocr-latest`) |
+| **Chat UI** | Assistant UI (composer, dictée) + Web Speech API |
 | **Generative UI** | CopilotKit (runtime Node.js + React) |
 | **OAuth / Connecteurs** | Nango (self-hosted) |
+
+## Architecture RAG
+
+### Pipeline d'ingestion
+
+```
+Upload fichier (.pdf, .docx, .pptx, .md, .txt, .html)
+       │
+       ▼
+  Validation (quota, doublon SHA256, taille max)
+       │
+       ▼
+  Stockage S3 : {tenant_id}/{collection_id}/{filename}
+       │
+       ▼
+  Worker Arq (background)
+       │
+       ├─► Parse document (Mistral OCR pour les PDFs, python-docx, etc.)
+       ├─► Découpage en chunks (taille fixe ~800 tokens, overlap 100 tokens)
+       │     └─ Split sur frontières de phrases (sentence-aware)
+       ├─► Génération embeddings batch (Mistral Embed, 1024 dim)
+       ├─► Indexation PostgreSQL (TSVECTOR + GIN index pour FTS)
+       └─► Indexation Qdrant (vecteurs cosine)
+              │
+              ▼
+        status = "ready"
+```
+
+### Pipeline de recherche (retrieval)
+
+```
+Question utilisateur
+       │
+       ▼
+  Embedding de la query (Mistral Embed)
+       │
+       ├────────────────────────────────────────┐
+       ▼                                        ▼
+  Recherche Keyword (PostgreSQL FTS)     Recherche Vectorielle (Qdrant)
+    - to_tsquery() avec logique OR         - Cosine similarity
+    - Filtre: tenant_id + collection_ids   - Filtre: tenant_id + collection_ids
+    - Ranking: ts_rank_cd()                - Top-K résultats
+    - Top-40 candidats                     - Top-40 candidats
+       │                                        │
+       └────────────┬───────────────────────────┘
+                    ▼
+          RRF Merge (Reciprocal Rank Fusion)
+            score = Σ 1/(k + rang),  k=60
+            Déduplique les chunks communs
+                    │
+                    ▼
+          Reranking (optionnel)
+            - Primaire: HuggingFace Inference Endpoint
+            - Fallback: Mistral Small (LLM-based)
+            - Top-10 résultats finaux
+                    │
+                    ▼
+          Contexte assemblé pour le LLM
+            (chunks avec source, page, extrait)
+```
+
+### Flow complet d'un message
+
+```
+Message utilisateur
+       │
+       ▼
+  1. Chargement assistant (collections + intégrations)
+  2. Vérification quota (Free tier: 100 requêtes/jour)
+  3. Historique conversation (si include_history=true)
+  4. Retrieval hybride (keyword + vector → RRF → rerank)
+  5. Construction du prompt système :
+       - Instructions de l'assistant (system_prompt)
+       - Contexte RAG (chunks avec métadonnées)
+       - Instructions pour les outils (blocks UI + intégrations)
+  6. Appel LLM (Mistral Medium) avec tool-calling :
+       - Boucle itérative (max 5 tours) :
+         · Si outil "block" → Generative UI (KPI, tableau, étapes)
+         · Si outil "integration" → Appel API externe via Nango
+         · Sinon → Réponse texte
+  7. Streaming SSE des tokens vers le frontend
+  8. Sauvegarde en DB (messages, citations, blocks, tokens)
+  9. Extraction des citations (top-5 chunks, score > 0)
+```
+
+### Cloisonnement des données
+
+| Niveau | Mécanisme |
+|--------|-----------|
+| **Multi-tenant** | `tenant_id` sur tous les modèles (assistant, collection, chunk, connexion) |
+| **Entre assistants** | Scoping par `collection_ids` — chaque assistant ne cherche que dans ses collections |
+| **Collections partagées** | Deux assistants d'un même tenant peuvent partager une collection (M:N) |
+| **Connecteurs** | Liés par assistant (max 2), scopés par tenant |
+| **Vector store** | Filtrage Qdrant par `tenant_id` + `collection_ids` dans le payload |
+| **Full-Text Search** | `WHERE tenant_id = ? AND collection_id = ANY(?)` avec champs dénormalisés |
+| **Stockage S3** | Clé : `{tenant_id}/{collection_id}/{filename}` |
+
+### Connecteurs disponibles (Nango)
+
+| Provider | Usage |
+|----------|-------|
+| HubSpot | CRM, contacts, deals |
+| Pipedrive | CRM |
+| Gmail | Emails |
+| Outlook | Emails |
+| Google Drive | Documents |
+| Notion | Pages |
+| Slack | Messages |
+| Shopify | E-commerce |
+| Stripe | Paiements |
+
+Chaque connecteur est invoqué par le LLM via **function calling**. L'appel transite par le Nango Proxy qui injecte automatiquement le token OAuth. Max 2 connecteurs par assistant.
+
+## Pages de l'application
+
+| Page | Route | Description |
+|------|-------|-------------|
+| **Accueil** | `/app` | Actions rapides, prompt libre avec dictée, historique unifié |
+| **Documents** | `/app/documents` | Liste des documents rédigés (contrats, devis, NDA…) |
+| **Éditeur** | `/app/documents/:id` | Éditeur structuré avec IA (génération, réécriture, ligne items) |
+| **Emails** | `/app/email` | Compositeur d'email avec ton, contexte et sources RAG |
+| **Recherche** | `/app/search` | Recherche dans les sources, historique en vignettes, conversations avec fil d'Ariane |
+| **Assistants** | `/app/assistants` | Liste et création des assistants |
+| **Config assistant** | `/app/assistant/:id` | Configuration (prompt, documents, liens, connecteurs) |
+| **Profil** | `/app/profile` | Paramètres utilisateur et connecteurs OAuth |
+| **Facturation** | `/app/billing` | Abonnement Stripe (Free / Pro) |
 
 ## Outils de développement
 
@@ -41,23 +177,27 @@
 ## Structure du projet
 
 ```
-├── app/                    # Backend FastAPI
-│   ├── api/v1/            # Routes API
-│   ├── core/              # Auth, chunking, parsing, vector store
-│   ├── models/            # Modèles SQLAlchemy
-│   ├── schemas/           # Schémas Pydantic
-│   ├── services/          # Logique métier
-│   └── workers/           # Workers Arq (ingestion async)
-├── frontend/              # Frontend React + Vite
+├── app/                         # Backend FastAPI
+│   ├── api/v1/                 # Routes API (chat, assistants, documents, dictation…)
+│   ├── core/                   # Auth, chunking, parsing, vector store
+│   │   └── retrieval/          # Pipeline hybride (orchestrator, keyword, vector, RRF, reranker)
+│   ├── models/                 # Modèles SQLAlchemy (assistant, message, chunk, document…)
+│   ├── schemas/                # Schémas Pydantic
+│   ├── services/               # Logique métier (chat, retrieval, embedding, transcription…)
+│   ├── integrations/           # Nango (OAuth tools, executor, registry)
+│   └── workers/                # Workers Arq (ingestion async)
+├── frontend/                   # Frontend React + Vite
 │   └── src/
-│       ├── api/           # Clients API
-│       ├── components/    # Composants UI
-│       └── pages/         # Pages de l'application
-├── copilot-runtime/       # CopilotKit Node.js runtime
-├── alembic/               # Migrations database
-├── tests/                 # Tests
-└── docs/                  # Documentation
-    └── integrations/      # CopilotKit & Nango docs
+│       ├── api/                # Clients API (chat, assistants, dictation…)
+│       ├── components/         # Composants UI (blocks, documents, layout…)
+│       ├── hooks/              # Hooks React (auth, dictation…)
+│       ├── lib/                # Utilitaires (dictation adapter, cn…)
+│       └── pages/              # Pages de l'application
+├── copilot-runtime/            # CopilotKit Node.js runtime
+├── alembic/                    # Migrations database
+├── tests/                      # Tests
+└── docs/                       # Documentation
+    └── integrations/           # CopilotKit & Nango docs
 ```
 
 ## Prérequis
@@ -65,7 +205,10 @@
 - **Python 3.11+**
 - **Node.js 18+** (LTS recommandé)
 - **Docker & Docker Compose** (pour PostgreSQL, Redis, Qdrant, MinIO, Nango)
-- Comptes / clés : [OpenAI](https://platform.openai.com/api-keys), [Clerk](https://dashboard.clerk.com) (optionnel en dev avec `DEV_AUTH_BYPASS=true`), [Stripe](https://dashboard.stripe.com) (optionnel pour le billing)
+- Comptes / clés :
+  - [Mistral AI](https://console.mistral.ai) (obligatoire — LLM, embeddings, OCR, transcription)
+  - [Clerk](https://dashboard.clerk.com) (optionnel en dev avec `DEV_AUTH_BYPASS=true`)
+  - [Stripe](https://dashboard.stripe.com) (optionnel pour le billing)
 
 ## Installation en local
 
@@ -89,7 +232,7 @@ make dev
 # ou : pip install -e ".[dev]"
 ```
 
-### 3. Variables d’environnement backend
+### 3. Variables d'environnement backend
 
 À la **racine** du projet :
 
@@ -102,14 +245,14 @@ cp .env.example .env
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | Déjà prêt si vous gardez `postgresql+asyncpg://mecano:mecano@localhost:5432/mecano` après `make up` |
-| `OPENAI_API_KEY` | Clé API OpenAI (obligatoire pour RAG et CopilotKit) |
+| `MISTRAL_API_KEY` | Clé API Mistral (obligatoire — LLM, embeddings, OCR, transcription) |
 | `CLERK_SECRET_KEY` | Clé secrète Clerk ([dashboard](https://dashboard.clerk.com)) |
 | `CLERK_PUBLISHABLE_KEY` | Clé publique Clerk (même dashboard) |
 | `CLERK_JWKS_URL` | `https://<votre-instance>.clerk.accounts.dev/.well-known/jwks.json` |
 
 En dev, `DEV_AUTH_BYPASS=true` permet de tester sans Clerk. Stripe, Nango et CopilotKit ont des valeurs par défaut ou optionnelles (voir `.env.example`).
 
-### 4. Variables d’environnement frontend
+### 4. Variables d'environnement frontend
 
 Dans le dossier **frontend** :
 
@@ -123,7 +266,7 @@ cp frontend/.env.example frontend/.env
 |----------|-------------|
 | `VITE_CLERK_PUBLISHABLE_KEY` | Même clé publique Clerk que le backend (préfixe **VITE_** obligatoire pour Vite) |
 
-Sans clé Clerk valide, l’app tourne en mode « sans auth » (message en console). Les autres variables (`VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_COPILOTKIT_RUNTIME_URL`, etc.) sont optionnelles pour un premier run.
+Sans clé Clerk valide, l'app tourne en mode « sans auth » (message en console). Les autres variables (`VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_COPILOTKIT_RUNTIME_URL`, etc.) sont optionnelles pour un premier run.
 
 ### 5. Dépendances frontend
 
@@ -150,7 +293,7 @@ make migrate
 # ou : alembic upgrade head
 ```
 
-### 8. Démarrer l’application
+### 8. Démarrer l'application
 
 Ouvrir **4 terminaux** à la racine du projet :
 
@@ -212,7 +355,22 @@ Ou utiliser le script fourni (si présent) : `make start` / `./start-dev.sh`.
 |---------|----------|-------------|
 | `POST` | `/api/v1/chat/{assistant_id}` | Chat (réponse complète) |
 | `POST` | `/api/v1/chat/{assistant_id}/stream` | Chat (SSE streaming) |
+| `GET` | `/api/v1/chat/{assistant_id}/conversations` | Lister les conversations |
 | `GET` | `/api/v1/chat/{assistant_id}/conversations/{id}` | Historique conversation |
+
+### Dictée vocale
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `POST` | `/api/v1/dictation/transcribe` | Transcrire un fichier audio (Mistral Voxtral) |
+
+### Workspace Documents
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `POST` | `/api/v1/workspace-documents` | Créer un document de travail |
+| `GET` | `/api/v1/workspace-documents` | Lister les documents |
+| `GET` | `/api/v1/workspace-documents/{id}` | Détails d'un document |
+| `PATCH` | `/api/v1/workspace-documents/{id}` | Modifier un document |
+| `POST` | `/api/v1/workspace-documents/{id}/ai` | Actions IA sur le document |
 
 ### Usage & Billing
 | Méthode | Endpoint | Description |
@@ -239,33 +397,39 @@ Ou utiliser le script fourni (si présent) : `make start` / `./start-dev.sh`.
 
 | Format | Extensions |
 |--------|------------|
-| PDF | `.pdf` |
+| PDF | `.pdf` (avec OCR Mistral automatique) |
 | Word | `.docx` |
 | PowerPoint | `.pptx` |
 | HTML | `.html`, `.htm` |
 | Markdown | `.md` |
 | Texte | `.txt` |
+| CSV | `.csv` |
+| Excel | `.xlsx`, `.xls` |
 
 ## Configuration
 
 **Backend** (racine, fichier `.env`) — variables principales :
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | URL PostgreSQL (async) |
-| `REDIS_URL` | URL Redis |
-| `QDRANT_URL` | URL Qdrant |
-| `OPENAI_API_KEY` | Clé API OpenAI |
-| `EMBEDDING_MODEL` | Modèle embeddings (défaut: `text-embedding-3-small`) |
-| `LLM_MODEL` | Modèle LLM (défaut: `gpt-4o-mini`) |
-| `CLERK_SECRET_KEY` | Clé secrète Clerk |
-| `CLERK_PUBLISHABLE_KEY` | Clé publique Clerk |
-| `CLERK_JWKS_URL` | URL JWKS Clerk (validation JWT) |
-| `STRIPE_SECRET_KEY` | Clé secrète Stripe |
-| `DEV_AUTH_BYPASS` | Bypass auth en dev (défaut: `true`) |
-| `NANGO_URL` | URL du serveur Nango (défaut: `http://localhost:3003`) |
-| `NANGO_SECRET_KEY` | Clé secrète Nango |
-| `COPILOTKIT_RUNTIME_URL` | URL du runtime CopilotKit (défaut: `http://localhost:4000`) |
+| Variable | Description | Défaut |
+|----------|-------------|--------|
+| `DATABASE_URL` | URL PostgreSQL (async) | `postgresql+asyncpg://mecano:mecano@localhost:5432/mecano` |
+| `REDIS_URL` | URL Redis | `redis://localhost:6379` |
+| `QDRANT_URL` | URL Qdrant | `http://localhost:6333` |
+| `MISTRAL_API_KEY` | Clé API Mistral (obligatoire) | — |
+| `LLM_MODEL` | Modèle LLM | `mistral-medium-latest` |
+| `EMBEDDING_PROVIDER` | Provider embeddings | `mistral` |
+| `EMBEDDING_MODEL` | Modèle embeddings | `mistral-embed` |
+| `TRANSCRIPTION_MODEL` | Modèle transcription audio | `mistral-stt-latest` |
+| `RERANK_PROVIDER` | Reranker primaire | `hf_endpoint` |
+| `RERANK_FALLBACK_PROVIDER` | Reranker fallback | `mistral` |
+| `USE_MISTRAL_OCR` | Activer l'OCR Mistral pour les PDFs | `true` |
+| `CLERK_SECRET_KEY` | Clé secrète Clerk | — |
+| `CLERK_PUBLISHABLE_KEY` | Clé publique Clerk | — |
+| `CLERK_JWKS_URL` | URL JWKS Clerk (validation JWT) | — |
+| `STRIPE_SECRET_KEY` | Clé secrète Stripe (optionnel) | — |
+| `DEV_AUTH_BYPASS` | Bypass auth en dev | `false` |
+| `NANGO_URL` | URL du serveur Nango | `http://localhost:3003` |
+| `NANGO_SECRET_KEY` | Clé secrète Nango | — |
 
 **Frontend** (`frontend/.env`) — préfixe **`VITE_`** obligatoire pour exposition au navigateur :
 
@@ -280,28 +444,37 @@ Voir `.env.example` et `frontend/.env.example` pour la liste complète.
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Frontend   │────▶│   FastAPI    │────▶│  PostgreSQL  │
-│  React/Vite  │     │    + Arq     │     │              │
-│  + CopilotKit│     └──────┬───────┘     └──────────────┘
-└──────┬───────┘            │
-       │        ┌───────────┼────────────────┐
-       │        ▼           ▼                ▼
-       │  ┌──────────┐┌──────────┐     ┌──────────┐
-       │  │  Redis   ││  Qdrant  │     │  MinIO   │
-       │  │  (queue) ││ (vectors)│     │   (S3)   │
-       │  └────┬─────┘└──────────┘     └──────────┘
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────┐
+│     Frontend     │────▶│     FastAPI      │────▶│  PostgreSQL  │
+│   React / Vite   │     │   + Arq Workers  │     │  + FTS (GIN) │
+│  + Assistant UI  │     └──────┬───────────┘     └──────────────┘
+└──────┬───────────┘            │
+       │        ┌───────────────┼────────────────────┐
+       │        ▼               ▼                    ▼
+       │  ┌──────────┐   ┌──────────┐         ┌──────────┐
+       │  │  Redis   │   │  Qdrant  │         │  MinIO   │
+       │  │  (queue) │   │ (vectors)│         │   (S3)   │
+       │  └────┬─────┘   └──────────┘         └──────────┘
        │       │
        │       ▼
-       │  ┌──────────┐
-       │  │  Worker  │──▶ Parse → Chunk → Embed → Index
-       │  └──────────┘
+       │  ┌──────────────────────────────────────────────┐
+       │  │  Worker Arq                                  │
+       │  │  Parse → OCR (Mistral) → Chunk → Embed → Index │
+       │  └──────────────────────────────────────────────┘
        │
-       │  ┌──────────────┐     ┌──────────────┐
-       └─▶│  CopilotKit  │     │    Nango     │
-          │  Runtime     │     │  (OAuth)     │
-          │  (Node :4000)│     │  (:3003)     │
-          └──────────────┘     └──────────────┘
+       │                 ┌──────────────────┐
+       │                 │   Mistral AI     │
+       │                 │  - Medium (LLM)  │
+       │                 │  - Embed (RAG)   │
+       └────────────────▶│  - OCR (docs)    │
+                         │  - Voxtral (STT) │
+                         └──────────────────┘
+                         ┌──────────────────┐
+                         │     Nango        │
+                         │  (OAuth proxy)   │
+                         │  HubSpot, Gmail, │
+                         │  Drive, Notion…  │
+                         └──────────────────┘
 ```
 
 ## Commandes Make
@@ -312,7 +485,7 @@ make dev      # Installer les dépendances Python (avec dev)
 make up       # Démarrer tous les services Docker
 make down     # Arrêter les services Docker
 make setup    # install + up + migrate (bootstrap rapide)
-make api      # Lancer l’API FastAPI (port 8000)
+make api      # Lancer l'API FastAPI (port 8000)
 make worker   # Lancer le worker Arq
 make migrate  # Appliquer les migrations Alembic
 make start    # Démarrer API + frontend (script start-dev.sh)

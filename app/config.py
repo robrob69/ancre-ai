@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # CopilotKit
     copilotkit_runtime_url: str = "http://localhost:4000"
 
+    # --- Transcription (Mistral Voxtral) ---
+    transcription_model: str = "mistral-stt-latest"
+
     # --- Mistral OCR ---
     mistral_api_key: str = ""
     mistral_ocr_model: str = "mistral-ocr-latest"

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -14,6 +14,8 @@ import {
   Anchor,
   MessageSquare,
   Clock,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +36,36 @@ const suggestions = [
 
 interface LocalMessage extends Message {
   isStreaming?: boolean;
+}
+
+// ── Speech Recognition types (Web Speech API) ──
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
+
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((ev: SpeechRecognitionEvent) => void) | null;
+  onerror: ((ev: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition: new () => SpeechRecognitionInstance;
+  }
 }
 
 function formatRelativeDate(dateStr: string): string {
@@ -62,12 +94,102 @@ export function SearchPage() {
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [expandedCitations, setExpandedCitations] = useState<Set<string>>(new Set());
+  const [isRecording, setIsRecording] = useState(false);
+
   const abortRef = useRef<(() => void) | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const conversationIdRef = useRef(conversationId);
   const isNewConversationRef = useRef(false);
   const initialLoadDone = useRef(false);
   conversationIdRef.current = conversationId;
+
+  // ── Speech Recognition (native Web Speech API) ──
+  // wantsRecording tracks user intent; recognition may fire onend spuriously
+  const wantsRecordingRef = useRef(false);
+
+  const startRecording = useCallback(() => {
+    const SpeechRecognitionCtor =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognitionCtor) {
+      console.error("Speech recognition not supported");
+      return;
+    }
+
+    wantsRecordingRef.current = true;
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "fr-FR";
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let finalTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript;
+        }
+      }
+      if (finalTranscript) {
+        setQuery((prev) => {
+          const separator = prev && !prev.endsWith(" ") ? " " : "";
+          return prev + separator + finalTranscript;
+        });
+      }
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (event.error === "aborted") return;
+      // Fatal errors: stop for real
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        console.error("Microphone access denied:", event.error);
+        wantsRecordingRef.current = false;
+        recognitionRef.current = null;
+        setIsRecording(false);
+        return;
+      }
+      console.error("Speech recognition error:", event.error);
+    };
+
+    recognition.onend = () => {
+      // Auto-restart if user hasn't clicked stop
+      if (wantsRecordingRef.current) {
+        try {
+          recognition.start();
+        } catch {
+          // Already started or other error — give up
+          wantsRecordingRef.current = false;
+          recognitionRef.current = null;
+          setIsRecording(false);
+        }
+        return;
+      }
+      recognitionRef.current = null;
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsRecording(true);
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    wantsRecordingRef.current = false;
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      // onend will fire and clean up since wantsRecording is false
+    }
+  }, []);
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
 
   // Fetch assistants
   const { data: assistants = [] } = useQuery({
@@ -399,6 +521,24 @@ export function SearchPage() {
                   autoFocus
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={toggleRecording}
+                    disabled={isSearching}
+                    className={cn(
+                      "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+                      isRecording
+                        ? "bg-destructive text-destructive-foreground animate-pulse"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    title={isRecording ? "Arrêter la dictée" : "Dicter"}
+                  >
+                    {isRecording ? (
+                      <MicOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
+                  </button>
                   <Button
                     variant="premium"
                     size="icon"
@@ -597,11 +737,29 @@ export function SearchPage() {
                     }
                   }}
                   placeholder="Posez une question complémentaire..."
-                  className="min-h-[48px] flex-1 border-0 bg-transparent px-3 py-3 pr-12 text-sm focus:outline-none focus:ring-0 text-foreground placeholder:text-muted-foreground"
+                  className="min-h-[48px] flex-1 border-0 bg-transparent px-3 py-3 pr-24 text-sm focus:outline-none focus:ring-0 text-foreground placeholder:text-muted-foreground"
                   disabled={isSearching}
                   autoFocus
                 />
-                <div className="absolute bottom-2 right-2">
+                <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={toggleRecording}
+                    disabled={isSearching}
+                    className={cn(
+                      "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+                      isRecording
+                        ? "bg-destructive text-destructive-foreground animate-pulse"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    title={isRecording ? "Arrêter la dictée" : "Dicter"}
+                  >
+                    {isRecording ? (
+                      <MicOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
+                  </button>
                   <Button
                     variant="premium"
                     size="icon"
