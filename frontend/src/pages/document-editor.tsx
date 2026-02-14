@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
@@ -54,8 +54,16 @@ function generateId() {
 export function DocumentEditorPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const { toast } = useToast()
+
+  // Extract initial prompt from navigation state (from dashboard)
+  const [initialPrompt] = useState(() => {
+    const p = (location.state as { prompt?: string } | null)?.prompt
+    if (p) window.history.replaceState({}, "")
+    return p
+  })
 
   const { docModel, setDocModel, updateBlock, addBlock, removeBlock } =
     useDocumentStore()
@@ -355,6 +363,7 @@ export function DocumentEditorPage() {
               onAddBlock={(type: DocBlockKind) => handleAddBlock(type)}
               isEmpty={blocksEmpty}
               onGeneratingChange={setIsGenerating}
+              initialPrompt={initialPrompt}
             />
           </div>
         )}

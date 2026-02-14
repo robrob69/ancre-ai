@@ -3,14 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { assistantsApi } from "@/api/assistants";
 import { chatApi } from "@/api/chat";
 import type { Assistant } from "@/types";
@@ -76,7 +70,6 @@ const contacts: Contact[] = [
   },
 ];
 
-const tones = ["Direct", "Diplomate", "Ferme", "Amical", "Formel"];
 const totalEmails = contacts.reduce((sum, c) => sum + c.emails.length, 0);
 
 // ── Speech Recognition types (Web Speech API) ──
@@ -110,12 +103,12 @@ declare global {
 }
 
 export const EmailComposer = () => {
+  const location = useLocation();
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<EmailData | null>(null);
   const [search, setSearch] = useState("");
   const [replying, setReplying] = useState(false);
   const [replyBody, setReplyBody] = useState("");
-  const [replyTone, setReplyTone] = useState("Diplomate");
   const [replyInstruction, setReplyInstruction] = useState("");
 
   // Compose new email state
@@ -123,7 +116,6 @@ export const EmailComposer = () => {
   const [composeTo, setComposeTo] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
-  const [composeTone, setComposeTone] = useState("Diplomate");
   const [composeInstruction, setComposeInstruction] = useState("");
 
   // Shared state
@@ -152,6 +144,17 @@ export const EmailComposer = () => {
     }
   }, [assistants, selectedAssistantId]);
 
+  // Auto-open compose with prompt from dashboard
+  useEffect(() => {
+    const state = location.state as { prompt?: string } | null;
+    if (state?.prompt) {
+      setComposing(true);
+      setComposeInstruction(state.prompt);
+      // Clear the state so it doesn't re-trigger on navigation
+      window.history.replaceState({}, "");
+    }
+  }, [location.state]);
+
   const filtered = search
     ? contacts.filter(
         (c) =>
@@ -166,7 +169,6 @@ export const EmailComposer = () => {
     setComposeTo("");
     setComposeSubject("");
     setComposeBody("");
-    setComposeTone("Diplomate");
     setComposeInstruction("");
     setSelectedContact(null);
     setSelectedEmail(null);
@@ -305,7 +307,7 @@ export const EmailComposer = () => {
   const generateReply = useCallback(() => {
     if (!selectedContact || !selectedEmail) return;
     if (!replyInstruction.trim()) return;
-    const prompt = `Tu es un assistant de rédaction d'emails professionnels. Rédige une réponse à l'email suivant sur un ton "${replyTone}".
+    const prompt = `Tu es un assistant de rédaction d'emails professionnels. Rédige une réponse à l'email suivant.
 
 Email original de ${selectedContact.name} (${selectedContact.email}, ${selectedContact.company}) :
 Objet : ${selectedEmail.subject}
@@ -318,11 +320,11 @@ Consigne de l'utilisateur : ${replyInstruction.trim()}
 Rédige UNIQUEMENT le corps de la réponse (pas d'objet, pas de "Re:"). Commence directement par la formule de salutation.`;
 
     generateWithAI(prompt, setReplyBody);
-  }, [selectedContact, selectedEmail, replyInstruction, replyTone, generateWithAI]);
+  }, [selectedContact, selectedEmail, replyInstruction, generateWithAI]);
 
   const generateComposeEmail = useCallback(() => {
     if (!composeInstruction.trim()) return;
-    const prompt = `Tu es un assistant de rédaction d'emails professionnels. Rédige un email sur un ton "${composeTone}".
+    const prompt = `Tu es un assistant de rédaction d'emails professionnels. Rédige un email.
 
 ${composeTo ? `Destinataire : ${composeTo}` : ""}
 ${composeSubject ? `Objet : ${composeSubject}` : ""}
@@ -332,7 +334,7 @@ Consigne : ${composeInstruction.trim()}
 Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de salutation.`;
 
     generateWithAI(prompt, setComposeBody);
-  }, [composeTo, composeSubject, composeInstruction, composeTone, generateWithAI]);
+  }, [composeTo, composeSubject, composeInstruction, generateWithAI]);
 
   // ── Determine current view ──
   const isContactList = !composing && !selectedContact;
@@ -571,7 +573,7 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
             {/* Action buttons */}
             {!replying && (
               <div className="flex items-center gap-2 flex-wrap">
-                <Button variant="action" size="sm" className="gap-1.5" onClick={() => { setReplying(true); setReplyBody(""); setReplyTone("Diplomate"); }}>
+                <Button variant="action" size="sm" className="gap-1.5" onClick={() => { setReplying(true); setReplyBody(""); }}>
                   <Reply className="h-3.5 w-3.5" />
                   Répondre
                 </Button>
@@ -589,23 +591,10 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
             {/* Reply composer */}
             {replying && (
               <div className="bg-card border border-border rounded-lg shadow-soft animate-fade-in">
-                {/* Toolbar: tone + assistant */}
+                {/* Toolbar */}
                 <div className="px-4 py-2.5 border-b border-border flex items-center gap-3 flex-wrap bg-muted/30">
                   <Reply className="h-3.5 w-3.5 text-primary shrink-0" />
                   <span className="text-xs text-muted-foreground shrink-0">Réponse à {selectedContact.name}</span>
-                  <div className="w-px h-4 bg-border/50" />
-                  <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <span className="text-xs text-muted-foreground shrink-0">Ton :</span>
-                  <Select value={replyTone} onValueChange={setReplyTone}>
-                    <SelectTrigger className="w-28 h-7 text-xs border-0 bg-transparent shadow-none px-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tones.map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                   <AssistantSelector />
                 </div>
 
@@ -745,20 +734,9 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                 </div>
               </div>
 
-              {/* Tone + Assistant selector bar */}
+              {/* Assistant selector bar */}
               <div className="px-4 py-2.5 border-b border-border/50 flex items-center gap-3 bg-muted/30 flex-wrap">
                 <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="text-xs text-muted-foreground shrink-0">Ton :</span>
-                <Select value={composeTone} onValueChange={setComposeTone}>
-                  <SelectTrigger className="w-28 h-7 text-xs border-0 bg-transparent shadow-none px-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tones.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 <AssistantSelector />
               </div>
 

@@ -144,6 +144,17 @@ declare global {
   }
 }
 
+// Keywords that indicate intent
+const EMAIL_KEYWORDS = ["email", "e-mail", "mail", "courriel", "envoyer un mail", "écrire un mail", "rédiger un mail", "composer un mail", "répondre"];
+const DOC_KEYWORDS = ["document", "contrat", "devis", "nda", "compte-rendu", "compte rendu", "rapport", "note", "facture", "rédiger un", "rédige un", "écrire un"];
+
+function detectIntent(text: string): "email" | "document" | "search" {
+  const lower = text.toLowerCase();
+  if (EMAIL_KEYWORDS.some((kw) => lower.includes(kw))) return "email";
+  if (DOC_KEYWORDS.some((kw) => lower.includes(kw))) return "document";
+  return "search";
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
@@ -151,6 +162,23 @@ export function DashboardPage() {
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const wantsRecordingRef = useRef(false);
+
+  const handleSubmit = useCallback(() => {
+    const text = prompt.trim();
+    if (!text) return;
+    const intent = detectIntent(text);
+    switch (intent) {
+      case "email":
+        navigate("/app/email", { state: { prompt: text } });
+        break;
+      case "document":
+        navigate("/app/documents", { state: { prompt: text } });
+        break;
+      default:
+        navigate(`/app/search?q=${encodeURIComponent(text)}`);
+        break;
+    }
+  }, [prompt, navigate]);
 
   // ── Speech Recognition ──
 
@@ -388,7 +416,7 @@ export function DashboardPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey && prompt.trim()) {
                     e.preventDefault();
-                    navigate("/app/search");
+                    handleSubmit();
                   }
                 }}
                 rows={3}
@@ -411,7 +439,7 @@ export function DashboardPage() {
                     <Mic className="h-4 w-4" />
                   )}
                 </button>
-                <Button variant="premium" size="icon" className="h-10 w-10 rounded-full" disabled={!prompt.trim()}>
+                <Button variant="premium" size="icon" className="h-10 w-10 rounded-full" disabled={!prompt.trim()} onClick={handleSubmit}>
                   <SendHorizontal className="h-4 w-4" />
                 </Button>
               </div>

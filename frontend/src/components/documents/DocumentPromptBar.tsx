@@ -135,6 +135,7 @@ interface DocumentPromptBarProps {
   onAddBlock: (type: DocBlockKind) => void
   isEmpty?: boolean
   onGeneratingChange?: (generating: boolean) => void
+  initialPrompt?: string
 }
 
 export function DocumentPromptBar({
@@ -144,6 +145,7 @@ export function DocumentPromptBar({
   onAddBlock,
   isEmpty = false,
   onGeneratingChange,
+  initialPrompt,
 }: DocumentPromptBarProps) {
   const [prompt, setPrompt] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
@@ -193,6 +195,17 @@ export function DocumentPromptBar({
       el.style.height = Math.min(el.scrollHeight, 120) + "px"
     }
   }, [prompt])
+
+  // Auto-fill from initial prompt (dashboard)
+  const initialPromptHandled = useRef(false)
+  const shouldAutoGenerate = useRef(false)
+  useEffect(() => {
+    if (initialPrompt && !initialPromptHandled.current) {
+      initialPromptHandled.current = true
+      shouldAutoGenerate.current = true
+      setPrompt(initialPrompt)
+    }
+  }, [initialPrompt])
 
   // Clear AI message after 8s (longer so user can copy)
   useEffect(() => {
@@ -382,6 +395,15 @@ export function DocumentPromptBar({
     history,
     onGeneratingChange,
   ])
+
+  // Auto-generate from initial prompt once handleGenerate is available
+  useEffect(() => {
+    if (shouldAutoGenerate.current && prompt && selectedAssistantId && !isGenerating) {
+      shouldAutoGenerate.current = false
+      const timer = setTimeout(() => handleGenerate(), 150)
+      return () => clearTimeout(timer)
+    }
+  }, [prompt, selectedAssistantId, isGenerating, handleGenerate])
 
   // ── Keyboard handler ──
 

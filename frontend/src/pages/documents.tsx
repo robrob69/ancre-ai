@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
 import {
   Plus,
   FileEdit,
@@ -63,8 +63,21 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "des
   archived: "destructive",
 }
 
+function detectDocType(text: string): string {
+  const lower = text.toLowerCase()
+  if (lower.includes("devis")) return "quote"
+  if (lower.includes("facture")) return "invoice"
+  if (lower.includes("contrat")) return "contract"
+  if (lower.includes("nda")) return "nda"
+  if (lower.includes("rapport") || lower.includes("compte-rendu") || lower.includes("compte rendu")) return "report"
+  if (lower.includes("note")) return "note"
+  if (lower.includes("procedure") || lower.includes("procédure")) return "procedure"
+  return "generic"
+}
+
 export function DocumentsPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
@@ -72,6 +85,7 @@ export function DocumentsPage() {
   const [newTitle, setNewTitle] = useState("")
   const [newDocType, setNewDocType] = useState("generic")
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
+  const promptHandled = useRef(false)
 
   const { data: documents, isLoading, error } = useQuery({
     queryKey: ["workspace-documents", statusFilter],
@@ -96,6 +110,26 @@ export function DocumentsPage() {
       toast({ title: "Erreur", description: "Impossible de creer le document.", variant: "destructive" })
     },
   })
+
+  // Auto-create document from dashboard prompt
+  useEffect(() => {
+    const state = location.state as { prompt?: string } | null
+    if (state?.prompt && !promptHandled.current) {
+      promptHandled.current = true
+      const prompt = state.prompt
+      const docType = detectDocType(prompt)
+      window.history.replaceState({}, "")
+      workspaceDocumentsApi
+        .create({ title: prompt.slice(0, 80), doc_type: docType })
+        .then((doc) => {
+          queryClient.invalidateQueries({ queryKey: ["workspace-documents"] })
+          navigate(`/app/documents/${doc.id}`, { state: { prompt } })
+        })
+        .catch(() => {
+          toast({ title: "Erreur", description: "Impossible de créer le document.", variant: "destructive" })
+        })
+    }
+  }, [location.state, navigate, queryClient, toast])
 
   return (
     <div className="container py-8 space-y-6">

@@ -363,6 +363,30 @@ export function SearchPage() {
     );
   }, [query, selectedAssistantId, fetchAllConversations]);
 
+  // Auto-search from ?q= param (e.g. from dashboard prompt)
+  const pendingQueryRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q && !pendingQueryRef.current) {
+      pendingQueryRef.current = q;
+      setQuery(q);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("q");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (pendingQueryRef.current && selectedAssistantId && query === pendingQueryRef.current) {
+      pendingQueryRef.current = null;
+      const timer = setTimeout(() => handleSearch(), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [query, selectedAssistantId, handleSearch]);
+
   const handleBackToList = useCallback(() => {
     if (abortRef.current) abortRef.current();
     setMessages([]);
