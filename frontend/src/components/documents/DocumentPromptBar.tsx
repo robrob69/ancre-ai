@@ -330,15 +330,30 @@ export function DocumentPromptBar({
         doc_type: docType,
       })
 
+      const responseMsg = response.message || ""
+
+      // Detect backend error responses (empty patches with error message)
+      if (
+        (!response.patches || response.patches.length === 0) &&
+        responseMsg.toLowerCase().includes("erreur")
+      ) {
+        setError(responseMsg)
+        return
+      }
+
+      if (!response.patches || response.patches.length === 0) {
+        setError("Aucun contenu genere. Reformulez votre demande ou verifiez l'assistant selectionne.")
+        return
+      }
+
       applyPatches(response.patches, updateBlock, addBlock)
-      const responseMsg = response.message || "Contenu genere avec succes."
-      setAiMessage(responseMsg)
+      setAiMessage(responseMsg || "Contenu genere avec succes.")
       setPrompt("")
 
       // Save to history
       const entry: HistoryEntry = {
         prompt: sentPrompt,
-        response: responseMsg,
+        response: responseMsg || "Contenu genere avec succes.",
         timestamp: Date.now(),
       }
       const updated = [entry, ...history].slice(0, MAX_HISTORY)

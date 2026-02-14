@@ -191,9 +191,15 @@ class WorkspaceDocumentService:
         """Build context string from retrieved chunks."""
         return self.retrieval.build_context(chunks)
 
-    async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
+    async def _llm_call(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        json_mode: bool = False,
+    ) -> str:
         """Make a single LLM call and return the content."""
-        response = await self.client.chat.completions.create(
+        kwargs: dict = dict(
             model=self.model,
             max_tokens=self.max_tokens,
             messages=[
@@ -201,6 +207,9 @@ class WorkspaceDocumentService:
                 {"role": "user", "content": user_prompt},
             ],
         )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = await self.client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
 
     # ── AI Actions ──
@@ -261,13 +270,34 @@ FORMAT DE RÉPONSE (JSON) :
 
         user_prompt = request.prompt
 
+        raw_response = ""
         try:
-            raw_response = await self._llm_call(system_prompt, user_prompt)
+            raw_response = await self._llm_call(system_prompt, user_prompt, json_mode=True)
+            logger.info("LLM raw response (first 500 chars): %s", raw_response[:500])
+
             # Parse JSON from response (handle markdown code blocks)
             json_str = raw_response.strip()
             if json_str.startswith("```"):
+                # Remove ```json or ``` prefix
                 json_str = json_str.split("\n", 1)[1] if "\n" in json_str else json_str
-                json_str = json_str.rsplit("```", 1)[0]
+                json_str = json_str.rsplit("```", 1)[0].strip()
+
+            # Try to extract JSON object if LLM added surrounding text
+            if not json_str.startswith("{"):
+                start = json_str.find("{")
+                if start >= 0:
+                    json_str = json_str[start:]
+                    # Find matching closing brace
+                    depth = 0
+                    for i, c in enumerate(json_str):
+                        if c == "{":
+                            depth += 1
+                        elif c == "}":
+                            depth -= 1
+                            if depth == 0:
+                                json_str = json_str[: i + 1]
+                                break
+
             parsed = json.loads(json_str)
 
             patches = [
@@ -280,7 +310,16 @@ FORMAT DE RÉPONSE (JSON) :
             ]
             message = parsed.get("message", "Document généré.")
 
+            if not patches:
+                logger.warning("LLM returned valid JSON but no patches")
+
             return AiActionResponse(patches=patches, sources=sources, message=message)
+        except json.JSONDecodeError as e:
+            logger.error("JSON parse error in generate: %s — raw: %s", e, raw_response[:300])
+            return AiActionResponse(
+                message=f"Erreur lors de la génération : le modèle n'a pas renvoyé un JSON valide.",
+                sources=sources,
+            )
         except Exception as e:
             logger.exception("Error in generate action: %s", e)
             return AiActionResponse(
@@ -356,12 +395,8 @@ FORMAT DE RÉPONSE (JSON) :
         user_prompt = request.instruction
 
         try:
-            raw_response = await self._llm_call(system_prompt, user_prompt)
-            json_str = raw_response.strip()
-            if json_str.startswith("```"):
-                json_str = json_str.split("\n", 1)[1] if "\n" in json_str else json_str
-                json_str = json_str.rsplit("```", 1)[0]
-            parsed = json.loads(json_str)
+            raw_response = await self._llm_call(system_prompt, user_prompt, json_mode=True)
+            parsed = json.loads(raw_response.strip())
 
             patches = [
                 DocPatch(
@@ -445,12 +480,10 @@ FORMAT DE RÉPONSE (JSON) :
 {f"CONTEXTE (sources RAG) :{chr(10)}{context}" if context else ""}"""
 
         try:
-            raw_response = await self._llm_call(system_prompt, "Effectue la vérification.")
-            json_str = raw_response.strip()
-            if json_str.startswith("```"):
-                json_str = json_str.split("\n", 1)[1] if "\n" in json_str else json_str
-                json_str = json_str.rsplit("```", 1)[0]
-            parsed = json.loads(json_str)
+            raw_response = await self._llm_call(
+                system_prompt, "Effectue la vérification.", json_mode=True
+            )
+            parsed = json.loads(raw_response.strip())
 
             patches = [
                 DocPatch(
@@ -553,12 +586,8 @@ FORMAT DE RÉPONSE (JSON) :
         user_prompt = request.description
 
         try:
-            raw_response = await self._llm_call(system_prompt, user_prompt)
-            json_str = raw_response.strip()
-            if json_str.startswith("```"):
-                json_str = json_str.split("\n", 1)[1] if "\n" in json_str else json_str
-                json_str = json_str.rsplit("```", 1)[0]
-            parsed = json.loads(json_str)
+            raw_response = await self._llm_call(system_prompt, user_prompt, json_mode=True)
+            parsed = json.loads(raw_response.strip())
 
             patches = [
                 DocPatch(
