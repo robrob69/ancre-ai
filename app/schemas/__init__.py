@@ -6,6 +6,17 @@ from app.schemas.collection import CollectionCreate, CollectionRead, CollectionU
 from app.schemas.document import DocumentCreate, DocumentRead, DocumentStatus
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
 from app.schemas.usage import UsageRead
+from app.schemas.mail import (
+    MailAccountRead,
+    MailAccountConnectResponse,
+    MailMessageBrief,
+    MailMessageRead,
+    MailThreadSummary,
+    MailThreadRead,
+    MailSendRequestCreate,
+    MailSendResponse,
+    MailSendStatusRead,
+)
 
 __all__ = [
     "TenantCreate",
@@ -24,4 +35,13 @@ __all__ = [
     "ChatResponse",
     "Citation",
     "UsageRead",
+    "MailAccountRead",
+    "MailAccountConnectResponse",
+    "MailMessageBrief",
+    "MailMessageRead",
+    "MailThreadSummary",
+    "MailThreadRead",
+    "MailSendRequestCreate",
+    "MailSendResponse",
+    "MailSendStatusRead",
 ]
