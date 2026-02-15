@@ -8,6 +8,7 @@ interface DocumentStore {
   addBlock: (block: DocBlock, afterBlockId?: string) => void
   removeBlock: (blockId: string) => void
   getDocModel: () => DocModel | null
+  reset: () => void
 }
 
 export const useDocumentStore = create<DocumentStore>((set, get) => ({
@@ -16,6 +17,8 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
   setDocModel: (model) => set({ docModel: model }),
 
   getDocModel: () => get().docModel,
+
+  reset: () => set({ docModel: null }),
 
   updateBlock: (blockId, patch) => {
     const { docModel } = get()

@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 class WorkspaceDocStatus(str, Enum):
     DRAFT = "draft"
-    REVIEW = "review"
-    FINAL = "final"
+    VALIDATED = "validated"
+    SENT = "sent"
     ARCHIVED = "archived"
 
 

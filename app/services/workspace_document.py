@@ -31,6 +31,82 @@ from app.services.retrieval import RetrievalService, RetrievedChunk
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+_GENERATE_MAX_TOKENS = 16_384
+
+
+def _repair_truncated_json(text: str) -> dict | None:
+    """Attempt to repair JSON truncated by max_tokens.
+
+    Walks the string tracking open braces/brackets while respecting
+    strings, then appends the missing closers.  Returns the parsed
+    dict on success, or None if repair fails.
+    """
+    open_stack: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            # Skip entire string (handle escapes)
+            i += 1
+            while i < n:
+                if text[i] == '\\':
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+        elif c in ('{', '['):
+            open_stack.append('}' if c == '{' else ']')
+        elif c in ('}', ']'):
+            if open_stack:
+                open_stack.pop()
+        i += 1
+
+    if not open_stack:
+        return None  # Nothing to repair (or not truncated)
+
+    # Remove a possible trailing incomplete value (e.g. cut-off string)
+    # by trimming back to last comma, colon, or opener
+    trimmed = text.rstrip()
+    while trimmed and trimmed[-1] not in (',', ':', '{', '[', '}', ']', '"'):
+        trimmed = trimmed[:-1]
+    # If we're mid-string, close it
+    if trimmed and trimmed[-1] == '"':
+        pass  # string is closed
+    elif trimmed and trimmed[-1] == ':':
+        trimmed += '""'  # add empty value
+    elif trimmed and trimmed[-1] == ',':
+        trimmed = trimmed[:-1]  # remove dangling comma
+
+    # Recount after trimming
+    open_stack = []
+    i = 0
+    n2 = len(trimmed)
+    while i < n2:
+        c = trimmed[i]
+        if c == '"':
+            i += 1
+            while i < n2:
+                if trimmed[i] == '\\':
+                    i += 2
+                    continue
+                if trimmed[i] == '"':
+                    break
+                i += 1
+        elif c in ('{', '['):
+            open_stack.append('}' if c == '{' else ']')
+        elif c in ('}', ']'):
+            if open_stack:
+                open_stack.pop()
+        i += 1
+
+    suffix = "".join(reversed(open_stack))
+    try:
+        return json.loads(trimmed + suffix)
+    except json.JSONDecodeError:
+        return None
+
 
 class WorkspaceDocumentService:
     """Service for workspace document CRUD and AI-assisted editing."""
@@ -152,6 +228,30 @@ class WorkspaceDocumentService:
         await db.flush()
         return True
 
+    async def duplicate(
+        self,
+        db: AsyncSession,
+        tenant_id: UUID,
+        doc_id: UUID,
+    ) -> WorkspaceDocument | None:
+        """Duplicate a workspace document as a new draft."""
+        source = await self.get(db, tenant_id, doc_id)
+        if not source:
+            return None
+
+        new_doc = WorkspaceDocument(
+            tenant_id=tenant_id,
+            assistant_id=source.assistant_id,
+            title=f"{source.title} (copie)",
+            doc_type=source.doc_type,
+            status="draft",
+            content_json=source.content_json,
+        )
+        db.add(new_doc)
+        await db.flush()
+        await db.refresh(new_doc)
+        return new_doc
+
     # ── Helpers ──
 
     async def _get_assistant_collection_ids(
@@ -197,11 +297,12 @@ class WorkspaceDocumentService:
         user_prompt: str,
         *,
         json_mode: bool = False,
+        max_tokens: int | None = None,
     ) -> str:
         """Make a single LLM call and return the content."""
         kwargs: dict = dict(
             model=self.model,
-            max_tokens=self.max_tokens,
+            max_tokens=max_tokens or self.max_tokens,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -211,6 +312,42 @@ class WorkspaceDocumentService:
             kwargs["response_format"] = {"type": "json_object"}
         response = await self.client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
+
+    # ── JSON helpers ──
+
+    @staticmethod
+    def _parse_json_response(raw: str) -> dict:
+        """Extract and parse a JSON object from an LLM response.
+
+        Handles: markdown code blocks, surrounding text, and truncated output.
+        Raises json.JSONDecodeError if nothing works.
+        """
+        text = raw.strip()
+
+        # Strip markdown code fences
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text
+            text = text.rsplit("```", 1)[0].strip()
+
+        # Find the first '{' to locate JSON start
+        start = text.find("{")
+        if start < 0:
+            raise json.JSONDecodeError("No JSON object found", text, 0)
+        text = text[start:]
+
+        # Try parsing as-is first (fast path)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Try to repair truncated JSON by closing open structures
+        repaired = _repair_truncated_json(text)
+        if repaired is not None:
+            return repaired
+
+        # Last resort: let json.loads raise with the original text
+        return json.loads(text)
 
     # ── AI Actions ──
 
@@ -270,62 +407,62 @@ FORMAT DE RÉPONSE (JSON) :
 
         user_prompt = request.prompt
 
+        max_attempts = 2
         raw_response = ""
-        try:
-            raw_response = await self._llm_call(system_prompt, user_prompt, json_mode=True)
-            logger.info("LLM raw response (first 500 chars): %s", raw_response[:500])
+        last_error: Exception | None = None
 
-            # Parse JSON from response (handle markdown code blocks)
-            json_str = raw_response.strip()
-            if json_str.startswith("```"):
-                # Remove ```json or ``` prefix
-                json_str = json_str.split("\n", 1)[1] if "\n" in json_str else json_str
-                json_str = json_str.rsplit("```", 1)[0].strip()
-
-            # Try to extract JSON object if LLM added surrounding text
-            if not json_str.startswith("{"):
-                start = json_str.find("{")
-                if start >= 0:
-                    json_str = json_str[start:]
-                    # Find matching closing brace
-                    depth = 0
-                    for i, c in enumerate(json_str):
-                        if c == "{":
-                            depth += 1
-                        elif c == "}":
-                            depth -= 1
-                            if depth == 0:
-                                json_str = json_str[: i + 1]
-                                break
-
-            parsed = json.loads(json_str)
-
-            patches = [
-                DocPatch(
-                    op=p.get("op", "add_block"),
-                    block_id=p.get("block_id"),
-                    value=p.get("value", {}),
+        for attempt in range(max_attempts):
+            try:
+                raw_response = await self._llm_call(
+                    system_prompt,
+                    user_prompt,
+                    json_mode=True,
+                    max_tokens=_GENERATE_MAX_TOKENS,
                 )
-                for p in parsed.get("patches", [])
-            ]
-            message = parsed.get("message", "Document généré.")
+                logger.info(
+                    "LLM raw response (attempt %d, first 500 chars): %s",
+                    attempt + 1,
+                    raw_response[:500],
+                )
 
-            if not patches:
-                logger.warning("LLM returned valid JSON but no patches")
+                parsed = self._parse_json_response(raw_response)
 
-            return AiActionResponse(patches=patches, sources=sources, message=message)
-        except json.JSONDecodeError as e:
-            logger.error("JSON parse error in generate: %s — raw: %s", e, raw_response[:300])
-            return AiActionResponse(
-                message=f"Erreur lors de la génération : le modèle n'a pas renvoyé un JSON valide.",
-                sources=sources,
-            )
-        except Exception as e:
-            logger.exception("Error in generate action: %s", e)
-            return AiActionResponse(
-                message=f"Erreur lors de la génération : {e}",
-                sources=sources,
-            )
+                patches = [
+                    DocPatch(
+                        op=p.get("op", "add_block"),
+                        block_id=p.get("block_id"),
+                        value=p.get("value", {}),
+                    )
+                    for p in parsed.get("patches", [])
+                ]
+                message = parsed.get("message", "Document généré.")
+
+                if not patches:
+                    logger.warning("LLM returned valid JSON but no patches")
+
+                return AiActionResponse(patches=patches, sources=sources, message=message)
+            except json.JSONDecodeError as e:
+                last_error = e
+                logger.warning(
+                    "JSON parse error (attempt %d/%d): %s — raw: %s",
+                    attempt + 1,
+                    max_attempts,
+                    e,
+                    raw_response[:300],
+                )
+                continue
+            except Exception as e:
+                logger.exception("Error in generate action: %s", e)
+                return AiActionResponse(
+                    message=f"Erreur lors de la génération : {e}",
+                    sources=sources,
+                )
+
+        logger.error("All %d generate attempts failed. Last error: %s", max_attempts, last_error)
+        return AiActionResponse(
+            message="Erreur lors de la génération : le modèle n'a pas renvoyé un JSON valide.",
+            sources=sources,
+        )
 
     async def rewrite_block(
         self,

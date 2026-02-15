@@ -6,6 +6,10 @@ import {
   FileEdit,
   Loader2,
   AlertCircle,
+  Copy,
+  Archive,
+  Trash2,
+  MoreVertical,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,6 +30,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -51,15 +72,15 @@ const DOC_TYPES = [
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Brouillon",
-  review: "En relecture",
-  final: "Final",
-  archived: "Archive",
+  validated: "Validé",
+  sent: "Envoyé",
+  archived: "Archivé",
 }
 
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   draft: "outline",
-  review: "secondary",
-  final: "default",
+  validated: "default",
+  sent: "secondary",
   archived: "destructive",
 }
 
@@ -92,6 +113,8 @@ export function DocumentsPage() {
     queryFn: () => workspaceDocumentsApi.list(statusFilter),
   })
 
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+
   const createMutation = useMutation({
     mutationFn: () =>
       workspaceDocumentsApi.create({
@@ -108,6 +131,39 @@ export function DocumentsPage() {
     },
     onError: () => {
       toast({ title: "Erreur", description: "Impossible de creer le document.", variant: "destructive" })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (docId: string) => workspaceDocumentsApi.delete(docId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace-documents"] })
+      toast({ title: "Document supprimé" })
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de supprimer le document.", variant: "destructive" })
+    },
+  })
+
+  const duplicateMutation = useMutation({
+    mutationFn: (docId: string) => workspaceDocumentsApi.duplicate(docId),
+    onSuccess: (doc) => {
+      queryClient.invalidateQueries({ queryKey: ["workspace-documents"] })
+      toast({ title: "Document dupliqué", description: `"${doc.title}" a été créé.` })
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de dupliquer le document.", variant: "destructive" })
+    },
+  })
+
+  const archiveMutation = useMutation({
+    mutationFn: (docId: string) => workspaceDocumentsApi.update(docId, { status: "archived" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace-documents"] })
+      toast({ title: "Document archivé" })
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible d'archiver le document.", variant: "destructive" })
     },
   })
 
@@ -150,8 +206,9 @@ export function DocumentsPage() {
         <TabsList>
           <TabsTrigger value="all">Tous</TabsTrigger>
           <TabsTrigger value="draft">Brouillons</TabsTrigger>
-          <TabsTrigger value="review">En relecture</TabsTrigger>
-          <TabsTrigger value="final">Finaux</TabsTrigger>
+          <TabsTrigger value="validated">Validés</TabsTrigger>
+          <TabsTrigger value="sent">Envoyés</TabsTrigger>
+          <TabsTrigger value="archived">Archivés</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -192,7 +249,7 @@ export function DocumentsPage() {
           {documents.map((doc: WorkspaceDocumentListItem) => (
             <Card
               key={doc.id}
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              className="relative group cursor-pointer hover:shadow-md transition-shadow"
               onClick={() => navigate(`/app/documents/${doc.id}`)}
             >
               <CardHeader className="pb-2">
@@ -215,6 +272,40 @@ export function DocumentsPage() {
                 Cree le{" "}
                 {new Date(doc.created_at).toLocaleDateString("fr-FR")}
               </CardFooter>
+
+              {/* Actions dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuItem onClick={() => duplicateMutation.mutate(doc.id)}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Dupliquer
+                  </DropdownMenuItem>
+                  {doc.status !== "archived" && (
+                    <DropdownMenuItem onClick={() => archiveMutation.mutate(doc.id)}>
+                      <Archive className="h-4 w-4 mr-2" />
+                      Archiver
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => setDeleteTarget(doc.id)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Supprimer
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </Card>
           ))}
         </div>
@@ -274,6 +365,30 @@ export function DocumentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer le document ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Le document sera définitivement supprimé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTarget) deleteMutation.mutate(deleteTarget)
+                setDeleteTarget(null)
+              }}
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

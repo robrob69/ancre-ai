@@ -360,6 +360,17 @@ export function DocumentPromptBar({
       }
 
       applyPatches(response.patches, updateBlock, addBlock)
+
+      // Force save immediately — don't rely on debounced autosave
+      // This ensures AI-generated content persists even if the user
+      // navigates away quickly.
+      const latestModel = useDocumentStore.getState().docModel
+      if (latestModel) {
+        workspaceDocumentsApi
+          .patchContent(docId, latestModel)
+          .catch((err) => console.error("[doc-ai] Failed to persist generated content:", err))
+      }
+
       setAiMessage(responseMsg || "Contenu genere avec succes.")
       setPrompt("")
 

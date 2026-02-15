@@ -25,14 +25,17 @@ export function useAutosave(docId: string, debounceMs: number = 1000) {
     [docId, debounceMs] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  // Flush on unmount
+  // Reset on docId change + flush on unmount/docId change
   useEffect(() => {
+    // Clear stale content from a previous document
+    latestContent.current = null
+
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
       if (latestContent.current) {
         workspaceDocumentsApi
           .patchContent(docId, latestContent.current)
-          .catch(() => {})
+          .catch((err) => console.error("[autosave] flush failed:", err))
       }
     }
   }, [docId])

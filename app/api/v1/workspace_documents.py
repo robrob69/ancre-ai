@@ -119,6 +119,22 @@ async def delete_workspace_document(
         )
 
 
+@router.post("/{doc_id}/duplicate", response_model=WorkspaceDocumentRead, status_code=status.HTTP_201_CREATED)
+async def duplicate_workspace_document(
+    doc_id: UUID,
+    user: CurrentUser,
+    db: DbSession,
+) -> WorkspaceDocumentRead:
+    """Duplicate a workspace document."""
+    doc = await workspace_document_service.duplicate(db, user.tenant_id, doc_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document introuvable.",
+        )
+    return WorkspaceDocumentRead.model_validate(doc)
+
+
 # ── AI Actions ──
 
 

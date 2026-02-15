@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from "react"
+import { useEffect, useCallback, useState, useRef } from "react"
 import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -9,6 +9,10 @@ import {
   AlertCircle,
   Eye,
   PenLine,
+  Check,
+  Send,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,15 +31,15 @@ import type { DocBlock, DocBlockKind, DocModel } from "@/types"
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Brouillon",
-  review: "En relecture",
-  final: "Final",
-  archived: "Archive",
+  validated: "Validé",
+  sent: "Envoyé",
+  archived: "Archivé",
 }
 
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   draft: "outline",
-  review: "secondary",
-  final: "default",
+  validated: "default",
+  sent: "secondary",
   archived: "destructive",
 }
 
@@ -65,7 +69,7 @@ export function DocumentEditorPage() {
     return p
   })
 
-  const { docModel, setDocModel, updateBlock, addBlock, removeBlock } =
+  const { docModel, setDocModel, updateBlock, addBlock, removeBlock, reset } =
     useDocumentStore()
   const { save, isSaving, lastSaved } = useAutosave(id || "")
 
@@ -73,6 +77,15 @@ export function DocumentEditorPage() {
   const [isExporting, setIsExporting] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+
+  // Track whether current docModel comes from an API load (skip autosave)
+  const isLoadingFromApi = useRef(true)
+
+  // Reset store when document ID changes (prevents stale content from previous doc)
+  useEffect(() => {
+    isLoadingFromApi.current = true
+    reset()
+  }, [id, reset])
 
   // Fetch document
   const {
@@ -88,6 +101,7 @@ export function DocumentEditorPage() {
   // Initialize store from fetched document
   useEffect(() => {
     if (doc) {
+      isLoadingFromApi.current = true
       const content = doc.content_json || DEFAULT_DOC_MODEL
       // Ensure content has all required fields
       const normalized: DocModel = {
@@ -102,9 +116,13 @@ export function DocumentEditorPage() {
     }
   }, [doc, setDocModel])
 
-  // Autosave on docModel changes
+  // Autosave on docModel changes — skip saves triggered by API loads
   useEffect(() => {
     if (docModel && id) {
+      if (isLoadingFromApi.current) {
+        isLoadingFromApi.current = false
+        return
+      }
       save(docModel)
     }
   }, [docModel]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -174,17 +192,68 @@ export function DocumentEditorPage() {
     try {
       const { url } = await workspaceDocumentsApi.exportPdf(id)
       window.open(url, "_blank")
-      toast({ title: "PDF exporte", description: "Le PDF a ete genere avec succes." })
+      toast({ title: "PDF exporté", description: "Le PDF a été généré avec succès." })
     } catch {
       toast({
         title: "Erreur",
-        description: "Impossible de generer le PDF.",
+        description: "Impossible de générer le PDF.",
         variant: "destructive",
       })
     } finally {
       setIsExporting(false)
     }
   }, [id, toast])
+
+  // Change document status
+  const handleStatusChange = useCallback(async (newStatus: string) => {
+    if (!id) return
+    try {
+      await workspaceDocumentsApi.update(id, { status: newStatus })
+      queryClient.invalidateQueries({ queryKey: ["workspace-document", id] })
+      queryClient.invalidateQueries({ queryKey: ["workspace-documents"] })
+      toast({
+        title: "Statut mis à jour",
+        description: `Le document est maintenant "${STATUS_LABELS[newStatus] || newStatus}".`,
+      })
+    } catch {
+      toast({
+        title: "Erreur",
+        description: "Impossible de mettre à jour le statut.",
+        variant: "destructive",
+      })
+    }
+  }, [id, queryClient, toast])
+
+  // Send document to email composer
+  const handleSendToEmail = useCallback(async () => {
+    if (!id) return
+    setIsExporting(true)
+    try {
+      const { url } = await workspaceDocumentsApi.exportPdf(id)
+      // Mark as sent
+      await workspaceDocumentsApi.update(id, { status: "sent" })
+      queryClient.invalidateQueries({ queryKey: ["workspace-document", id] })
+      queryClient.invalidateQueries({ queryKey: ["workspace-documents"] })
+      // Navigate to email composer with pre-filled data
+      navigate("/app/email", {
+        state: {
+          fromDocument: {
+            id,
+            title,
+            pdfUrl: url,
+          },
+        },
+      })
+    } catch {
+      toast({
+        title: "Erreur",
+        description: "Impossible de générer le PDF pour l'envoi.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }, [id, title, navigate, queryClient, toast])
 
   // Get assistant collection IDs for CopilotKit
   const collectionIds: string[] = [] // Will be populated from assistant if linked
@@ -218,6 +287,7 @@ export function DocumentEditorPage() {
   }
 
   const blocksEmpty = !docModel?.blocks || docModel.blocks.length === 0
+  const isReadOnly = doc.status === "sent" || doc.status === "archived"
 
   return (
     <div className="flex flex-col h-full">
@@ -243,7 +313,8 @@ export function DocumentEditorPage() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={handleTitleBlur}
-          className="text-lg font-semibold border-0 shadow-none bg-transparent h-auto py-1 px-2 focus-visible:ring-1 max-w-md"
+          readOnly={isReadOnly}
+          className={`text-lg font-semibold border-0 shadow-none bg-transparent h-auto py-1 px-2 focus-visible:ring-1 max-w-md ${isReadOnly ? "cursor-default" : ""}`}
           placeholder="Sans titre"
         />
 
@@ -253,55 +324,181 @@ export function DocumentEditorPage() {
 
         <div className="flex-1" />
 
-        {/* Save indicator */}
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          {isSaving ? (
-            <>
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span>Enregistrement...</span>
-            </>
-          ) : lastSaved ? (
-            <>
-              <Save className="h-3 w-3" />
-              <span>Enregistre</span>
-            </>
-          ) : null}
-        </div>
+        {/* ── Status-dependent actions ── */}
 
-        {/* Preview toggle */}
-        <Button
-          variant={isPreview ? "default" : "outline"}
-          size="sm"
-          onClick={() => setIsPreview((v) => !v)}
-          className="gap-1.5"
-        >
-          {isPreview ? (
-            <>
+        {doc.status === "draft" && (
+          <>
+            {/* Save indicator */}
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Enregistrement...</span>
+                </>
+              ) : lastSaved ? (
+                <>
+                  <Save className="h-3 w-3" />
+                  <span>Enregistré</span>
+                </>
+              ) : null}
+            </div>
+
+            {/* Preview toggle */}
+            <Button
+              variant={isPreview ? "default" : "outline"}
+              size="sm"
+              onClick={() => setIsPreview((v) => !v)}
+              className="gap-1.5"
+            >
+              {isPreview ? (
+                <>
+                  <PenLine className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Éditer</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Aperçu</span>
+                </>
+              )}
+            </Button>
+
+            {/* Download PDF (icon only) */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleExportPdf}
+              disabled={isExporting}
+              className="h-8 w-8"
+              title="Télécharger le PDF"
+            >
+              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            </Button>
+
+            {/* Valider */}
+            <Button
+              size="sm"
+              onClick={() => handleStatusChange("validated")}
+              className="gap-1.5"
+            >
+              <Check className="h-3.5 w-3.5" />
+              <span>Valider</span>
+            </Button>
+          </>
+        )}
+
+        {doc.status === "validated" && (
+          <>
+            {/* Modifier (back to draft) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleStatusChange("draft")}
+              className="gap-1.5"
+            >
               <PenLine className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Editer</span>
-            </>
-          ) : (
-            <>
-              <Eye className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Apercu</span>
-            </>
-          )}
-        </Button>
+              <span className="hidden sm:inline">Modifier</span>
+            </Button>
 
-        {/* Export PDF */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleExportPdf}
-          disabled={isExporting}
-        >
-          {isExporting ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4 mr-2" />
-          )}
-          <span className="hidden sm:inline">Exporter PDF</span>
-        </Button>
+            {/* Download PDF (icon only) */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleExportPdf}
+              disabled={isExporting}
+              className="h-8 w-8"
+              title="Télécharger le PDF"
+            >
+              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            </Button>
+
+            {/* Archiver */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleStatusChange("archived")}
+              className="gap-1.5"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Archiver</span>
+            </Button>
+
+            {/* Envoyer */}
+            <Button
+              size="sm"
+              onClick={handleSendToEmail}
+              disabled={isExporting}
+              className="gap-1.5"
+            >
+              {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              <span>Envoyer</span>
+            </Button>
+          </>
+        )}
+
+        {doc.status === "sent" && (
+          <>
+            {/* Download PDF */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleExportPdf}
+              disabled={isExporting}
+              className="h-8 w-8"
+              title="Télécharger le PDF"
+            >
+              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            </Button>
+
+            {/* Archiver */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleStatusChange("archived")}
+              className="gap-1.5"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Archiver</span>
+            </Button>
+
+            {/* Renvoyer */}
+            <Button
+              size="sm"
+              onClick={handleSendToEmail}
+              disabled={isExporting}
+              className="gap-1.5"
+            >
+              {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              <span>Renvoyer</span>
+            </Button>
+          </>
+        )}
+
+        {doc.status === "archived" && (
+          <>
+            {/* Download PDF */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleExportPdf}
+              disabled={isExporting}
+              className="h-8 w-8"
+              title="Télécharger le PDF"
+            >
+              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            </Button>
+
+            {/* Désarchiver */}
+            <Button
+              size="sm"
+              onClick={() => handleStatusChange("draft")}
+              className="gap-1.5"
+            >
+              <ArchiveRestore className="h-3.5 w-3.5" />
+              <span>Désarchiver</span>
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Scrollable content area */}
@@ -309,8 +506,8 @@ export function DocumentEditorPage() {
         {/* Anchor spinner overlay during AI generation */}
         <AnchorSpinner active={isGenerating} />
 
-        {isPreview ? (
-          /* ── Preview mode ── */
+        {isPreview || isReadOnly ? (
+          /* ── Preview / read-only mode ── */
           <div className="px-4 sm:px-6 py-8">
             <DocumentPreview
               title={title}

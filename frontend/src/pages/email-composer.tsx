@@ -1,13 +1,35 @@
-import { Mail, Download, Clock, Search, Send, ChevronRight, Reply, Forward, Mic, Plus, Sparkles, Bot, Loader2, Square } from "lucide-react";
+import { Mail, Download, Clock, Search, Send, ChevronRight, Reply, Forward, Mic, Plus, Sparkles, Bot, Loader2, Square, Paperclip, X, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { assistantsApi } from "@/api/assistants";
 import { chatApi } from "@/api/chat";
+import { workspaceDocumentsApi } from "@/api/workspace-documents";
 import type { Assistant } from "@/types";
+
+interface EmailAttachment {
+  id: string;
+  name: string;
+  url: string;
+  type: "pdf" | "file";
+  sourceDocId?: string;
+}
 
 interface EmailData {
   subject: string;
@@ -117,6 +139,12 @@ export const EmailComposer = () => {
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
   const [composeInstruction, setComposeInstruction] = useState("");
+  const [composeAttachments, setComposeAttachments] = useState<EmailAttachment[]>([]);
+  const [showDocPicker, setShowDocPicker] = useState(false);
+  const [docPickerTarget, setDocPickerTarget] = useState<"compose" | "reply">("compose");
+
+  // Reply attachments
+  const [replyAttachments, setReplyAttachments] = useState<EmailAttachment[]>([]);
 
   // Shared state
   const [isRecording, setIsRecording] = useState(false);
@@ -144,13 +172,32 @@ export const EmailComposer = () => {
     }
   }, [assistants, selectedAssistantId]);
 
-  // Auto-open compose with prompt from dashboard
+  // Auto-open compose with prompt from dashboard or document
   useEffect(() => {
-    const state = location.state as { prompt?: string } | null;
-    if (state?.prompt) {
+    const state = location.state as {
+      prompt?: string;
+      fromDocument?: { id: string; title: string; pdfUrl: string };
+    } | null;
+    if (state?.fromDocument) {
+      const doc = state.fromDocument;
+      setComposing(true);
+      setComposeSubject(doc.title);
+      setComposeAttachments([
+        {
+          id: crypto.randomUUID(),
+          name: `${doc.title}.pdf`,
+          url: doc.pdfUrl,
+          type: "pdf",
+          sourceDocId: doc.id,
+        },
+      ]);
+      setComposeInstruction(
+        `Rédige un email d'accompagnement pour le document "${doc.title}" en pièce jointe. Sois bref et professionnel.`
+      );
+      window.history.replaceState({}, "");
+    } else if (state?.prompt) {
       setComposing(true);
       setComposeInstruction(state.prompt);
-      // Clear the state so it doesn't re-trigger on navigation
       window.history.replaceState({}, "");
     }
   }, [location.state]);
@@ -164,18 +211,99 @@ export const EmailComposer = () => {
       )
     : contacts;
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const replyFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch validated documents for attachment picker
+  const { data: validatedDocs } = useQuery({
+    queryKey: ["workspace-documents", "validated"],
+    queryFn: () => workspaceDocumentsApi.list("validated"),
+    enabled: showDocPicker,
+  });
+
   const openCompose = () => {
     setComposing(true);
     setComposeTo("");
     setComposeSubject("");
     setComposeBody("");
     setComposeInstruction("");
+    setComposeAttachments([]);
+    setShowDocPicker(false);
     setSelectedContact(null);
     setSelectedEmail(null);
     setReplying(false);
     setReplyBody("");
     setReplyInstruction("");
     setSearch("");
+  };
+
+  const handleAddLocalFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setComposeAttachments((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: file.name, url, type: "file" },
+    ]);
+    // Reset so same file can be re-selected
+    e.target.value = "";
+  };
+
+  const handlePickDocument = async (docId: string, title: string) => {
+    try {
+      const { url } = await workspaceDocumentsApi.exportPdf(docId);
+      setComposeAttachments((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          name: `${title}.pdf`,
+          url,
+          type: "pdf",
+          sourceDocId: docId,
+        },
+      ]);
+      setShowDocPicker(false);
+    } catch {
+      // silently fail — toast could be added later
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setComposeAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleAddReplyFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setReplyAttachments((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: file.name, url, type: "file" },
+    ]);
+    e.target.value = "";
+  };
+
+  const handlePickDocumentForReply = async (docId: string, title: string) => {
+    try {
+      const { url } = await workspaceDocumentsApi.exportPdf(docId);
+      setReplyAttachments((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          name: `${title}.pdf`,
+          url,
+          type: "pdf",
+          sourceDocId: docId,
+        },
+      ]);
+      setShowDocPicker(false);
+    } catch {
+      // silently fail
+    }
+  };
+
+  const handleRemoveReplyAttachment = (id: string) => {
+    setReplyAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
   // ── Speech Recognition (context-aware target) ──
@@ -395,7 +523,7 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
         {isEmailDetail && selectedContact && selectedEmail && (
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             <button
-              onClick={() => { setSelectedContact(null); setSelectedEmail(null); setReplying(false); setReplyBody(""); setSearch(""); }}
+              onClick={() => { setSelectedContact(null); setSelectedEmail(null); setReplying(false); setReplyBody(""); setReplyAttachments([]); setSearch(""); }}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
             >
               <Mail className="h-4 w-4" />
@@ -403,7 +531,7 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
             </button>
             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <button
-              onClick={() => { setSelectedEmail(null); setReplying(false); setReplyBody(""); }}
+              onClick={() => { setSelectedEmail(null); setReplying(false); setReplyBody(""); setReplyAttachments([]); }}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0 truncate max-w-[120px]"
             >
               {selectedContact.name}
@@ -632,6 +760,28 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                   </div>
                 )}
 
+                {/* Reply attachments */}
+                {replyAttachments.length > 0 && (
+                  <div className="px-4 py-2.5 border-t border-border/50 bg-muted/10 flex items-center gap-2 flex-wrap">
+                    <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    {replyAttachments.map((att) => (
+                      <span
+                        key={att.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent/50 text-xs text-foreground border border-border"
+                      >
+                        <FileText className="h-3 w-3 text-primary shrink-0" />
+                        <span className="truncate max-w-[160px]">{att.name}</span>
+                        <button
+                          onClick={() => handleRemoveReplyAttachment(att.id)}
+                          className="text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {/* AI instruction field */}
                 <div className="border-t border-border bg-muted/20">
                   <div className="px-4 pt-3 pb-1">
@@ -698,8 +848,35 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                   <Button variant="outline" size="sm" disabled={!replyBody.trim() || isGenerating}>
                     Brouillon
                   </Button>
+
+                  {/* Attach button for reply */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-1.5">
+                        <Paperclip className="h-3.5 w-3.5" />
+                        Joindre
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="top" align="start" sideOffset={8}>
+                      <DropdownMenuItem onClick={() => replyFileInputRef.current?.click()}>
+                        <Paperclip className="h-4 w-4 mr-2" />
+                        Importer un fichier
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setDocPickerTarget("reply"); setShowDocPicker(true); }}>
+                        <FileText className="h-4 w-4 mr-2" />
+                        Depuis mes documents
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <input
+                    ref={replyFileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleAddReplyFile}
+                  />
+
                   <div className="flex-1" />
-                  <Button variant="ghost" size="sm" onClick={() => { setReplying(false); setReplyBody(""); setReplyInstruction(""); stopGeneration(); stopRecording(); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setReplying(false); setReplyBody(""); setReplyInstruction(""); setReplyAttachments([]); stopGeneration(); stopRecording(); }}>
                     Annuler
                   </Button>
                 </div>
@@ -774,6 +951,28 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                 </div>
               )}
 
+              {/* Attachments */}
+              {composeAttachments.length > 0 && (
+                <div className="px-4 py-2.5 border-t border-border/50 bg-muted/10 flex items-center gap-2 flex-wrap">
+                  <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  {composeAttachments.map((att) => (
+                    <span
+                      key={att.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent/50 text-xs text-foreground border border-border"
+                    >
+                      <FileText className="h-3 w-3 text-primary shrink-0" />
+                      <span className="truncate max-w-[160px]">{att.name}</span>
+                      <button
+                        onClick={() => handleRemoveAttachment(att.id)}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               {/* AI instruction field */}
               <div className="border-t border-border bg-muted/20">
                 <div className="px-4 pt-3 pb-1">
@@ -845,14 +1044,85 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                 <Button variant="outline" size="sm" disabled={!composeBody.trim() || isGenerating}>
                   Brouillon
                 </Button>
+
+                {/* Attach button */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      Joindre
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="top" align="start" sideOffset={8}>
+                    <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                      <Paperclip className="h-4 w-4 mr-2" />
+                      Importer un fichier
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setDocPickerTarget("compose"); setShowDocPicker(true); }}>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Depuis mes documents
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleAddLocalFile}
+                />
+
                 <div className="flex-1" />
-                <Button variant="ghost" size="sm" onClick={() => { setComposing(false); setComposeInstruction(""); stopGeneration(); stopRecording(); }}>
+                <Button variant="ghost" size="sm" onClick={() => { setComposing(false); setComposeInstruction(""); setComposeAttachments([]); stopGeneration(); stopRecording(); }}>
                   Annuler
                 </Button>
               </div>
             </div>
           </div>
         )}
+
+        {/* Document picker dialog */}
+        <Dialog open={showDocPicker} onOpenChange={setShowDocPicker}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Joindre un document</DialogTitle>
+              <DialogDescription>
+                Sélectionnez un document validé à joindre en PDF.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[300px] overflow-auto space-y-1 py-2">
+              {!validatedDocs && (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Chargement…
+                </div>
+              )}
+              {validatedDocs && validatedDocs.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Aucun document validé disponible.
+                </p>
+              )}
+              {validatedDocs?.map((doc) => (
+                <button
+                  key={doc.id}
+                  onClick={() =>
+                    docPickerTarget === "reply"
+                      ? handlePickDocumentForReply(doc.id, doc.title)
+                      : handlePickDocument(doc.id, doc.title)
+                  }
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left"
+                >
+                  <FileText className="h-4 w-4 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-foreground truncate">{doc.title}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(doc.updated_at).toLocaleDateString("fr-FR")}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

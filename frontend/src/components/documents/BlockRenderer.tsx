@@ -2,7 +2,8 @@ import { TiptapCanvas } from "./TiptapCanvas"
 import { LineItemsTable } from "./LineItemsTable"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trash2 } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Trash2, Plus } from "lucide-react"
 import type { DocBlock, LineItemData } from "@/types"
 
 interface BlockRendererProps {
@@ -67,26 +68,63 @@ export function BlockRenderer({
           />
         )
 
-      case "signature":
+      case "signature": {
+        const parties = (block.parties || []) as Record<string, string>[]
+        const updateParty = (idx: number, field: string, value: string) => {
+          const updated = parties.map((p, i) =>
+            i === idx ? { ...p, [field]: value } : p
+          )
+          onChange({ parties: updated })
+        }
+        const addParty = () => {
+          onChange({ parties: [...parties, { name: "", role: "" }] })
+        }
+        const removeParty = (idx: number) => {
+          onChange({ parties: parties.filter((_, i) => i !== idx) })
+        }
         return (
-          <div className="flex gap-8 pt-8">
-            {(block.parties || []).map((party, i) => (
-              <div key={i} className="flex-1 border-t pt-3">
-                <p className="font-medium">
-                  {(party as Record<string, string>).name || ""}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {(party as Record<string, string>).role || ""}
-                </p>
-                {(party as Record<string, string>).date && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Date: {(party as Record<string, string>).date}
-                  </p>
-                )}
-              </div>
-            ))}
+          <div className="space-y-4 pt-4">
+            <div className="flex flex-wrap gap-6">
+              {parties.map((party, i) => (
+                <div key={i} className="flex-1 min-w-[200px] border-t pt-3 space-y-2">
+                  <Input
+                    value={party.name || ""}
+                    onChange={(e) => updateParty(i, "name", e.target.value)}
+                    placeholder="Nom"
+                    className="font-medium h-8"
+                  />
+                  <Input
+                    value={party.role || ""}
+                    onChange={(e) => updateParty(i, "role", e.target.value)}
+                    placeholder="Role (ex: Emetteur)"
+                    className="text-sm h-8"
+                  />
+                  {parties.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-muted-foreground hover:text-destructive px-1"
+                      onClick={() => removeParty(i)}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Retirer
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={addParty}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Ajouter un signataire
+            </Button>
           </div>
         )
+      }
 
       case "attachments":
         return (

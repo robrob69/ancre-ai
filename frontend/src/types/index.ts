@@ -144,7 +144,7 @@ export type DocBlockKind =
   | "attachments"
   | "variables"
 
-export type WorkspaceDocStatus = "draft" | "review" | "final" | "archived"
+export type WorkspaceDocStatus = "draft" | "validated" | "sent" | "archived"
 
 export interface LineItemData {
   id: string

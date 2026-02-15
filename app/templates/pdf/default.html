@@ -118,19 +118,6 @@
     .signature-party .name { font-weight: 600; }
     .signature-party .role { font-size: 9pt; color: #64748b; }
 
-    /* Footer */
-    .doc-footer {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      padding: 8px 15mm;
-      font-size: 8pt;
-      color: #94a3b8;
-      text-align: center;
-      border-top: 1px solid #e2e8f0;
-    }
-
     /* Sources */
     .sources {
       margin-top: 32px;
@@ -164,7 +151,7 @@
     {% endif %}
 
     {% if block.type == "rich_text" %}
-    <div class="rich-text">{{ block.html_content }}</div>
+    <div class="rich-text">{{ block.html_content | safe }}</div>
 
     {% elif block.type == "line_items" %}
     <table class="line-items-table">
@@ -199,7 +186,7 @@
 
     {% elif block.type in ["clause", "terms"] %}
     <div class="{{ block.type }}-block">
-      <div class="rich-text">{{ block.html_content }}</div>
+      <div class="rich-text">{{ block.html_content | safe }}</div>
     </div>
 
     {% elif block.type == "signature" %}
@@ -245,8 +232,5 @@
   </div>
   {% endif %}
 
-  <div class="doc-footer">
-    {{ title }} — {{ meta.date | default("") }}
-  </div>
 </body>
 </html>

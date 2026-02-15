@@ -98,8 +98,8 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 const DOC_STATUS_LABELS: Record<string, string> = {
   draft: "Brouillon",
-  review: "En relecture",
-  final: "Finalisé",
+  validated: "Validé",
+  sent: "Envoyé",
   archived: "Archivé",
 };
 

@@ -1,6 +1,8 @@
 """PDF export service — DocModel -> HTML (Jinja2) -> PDF (Playwright) -> S3."""
 
 import logging
+import re
+from datetime import date
 from pathlib import Path
 from uuid import UUID
 
@@ -103,9 +105,17 @@ class PdfExportService:
             sources=[s.model_dump() for s in doc_model.sources],
         )
 
-    async def html_to_pdf(self, html: str) -> bytes:
+    async def html_to_pdf(self, html: str, title: str = "") -> bytes:
         """Convert HTML to PDF using Playwright."""
         from playwright.async_api import async_playwright
+
+        footer_html = (
+            '<div style="width:100%;font-size:8px;color:#94a3b8;'
+            'text-align:center;border-top:1px solid #e2e8f0;padding-top:4px;">'
+            f'{title}'
+            ' — page <span class="pageNumber"></span>/<span class="totalPages"></span>'
+            '</div>'
+        )
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -114,7 +124,10 @@ class PdfExportService:
             pdf_bytes = await page.pdf(
                 format="A4",
                 print_background=True,
-                margin={"top": "20mm", "right": "15mm", "bottom": "25mm", "left": "15mm"},
+                display_header_footer=True,
+                header_template='<span></span>',
+                footer_template=footer_html,
+                margin={"top": "20mm", "right": "15mm", "bottom": "20mm", "left": "15mm"},
             )
             await browser.close()
 
@@ -132,14 +145,19 @@ class PdfExportService:
         html = self.render_html(title, doc_model)
 
         # 2. Convert to PDF
-        pdf_bytes = await self.html_to_pdf(html)
+        pdf_bytes = await self.html_to_pdf(html, title=title)
 
         # 3. Upload to S3 using a fixed collection_id for workspace exports
         exports_collection_id = UUID("00000000-0000-0000-0000-000000000000")
+        # Filename: slugified title + date (e.g. "contrat-nda-2026-02-14.pdf")
+        slug = re.sub(r"[^\w\s-]", "", title.lower())
+        slug = re.sub(r"[\s_]+", "-", slug).strip("-")[:80]
+        today = date.today().isoformat()
+        filename = f"{slug}-{today}.pdf" if slug else f"{doc_id}.pdf"
         s3_key, _, _ = await storage_service.upload_file(
             tenant_id=tenant_id,
             collection_id=exports_collection_id,
-            filename=f"{doc_id}.pdf",
+            filename=filename,
             content=pdf_bytes,
             content_type="application/pdf",
         )

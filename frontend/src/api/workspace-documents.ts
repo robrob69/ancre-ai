@@ -62,6 +62,13 @@ export const workspaceDocumentsApi = {
     await apiClient.delete(`/workspace-documents/${id}`)
   },
 
+  duplicate: async (id: string): Promise<WorkspaceDocument> => {
+    const { data } = await apiClient.post<WorkspaceDocument>(
+      `/workspace-documents/${id}/duplicate`
+    )
+    return data
+  },
+
   // AI actions
 
   generate: async (
