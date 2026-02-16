@@ -55,7 +55,7 @@ async def keyword_search(
         return []
 
     # Build the collection filter clause
-    if collection_ids:
+    if collection_ids is not None:
         collection_filter = "AND c.collection_id = ANY(CAST(:collection_ids AS uuid[]))"
         params: dict = {
             "tenant_id": str(tenant_id),

@@ -152,8 +152,8 @@ class VectorStore:
             )
         ]
         
-        if collection_ids:
-            # Filter by specific collections
+        if collection_ids is not None:
+            # Filter by specific collections (empty list = match nothing)
             should_conditions = [
                 FieldCondition(
                     key="collection_id",

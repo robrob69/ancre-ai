@@ -3,6 +3,7 @@ import { SignIn, SignUp } from "@clerk/clerk-react"
 import { Toaster } from "@/components/ui/toaster"
 import { Toaster as Sonner } from "@/components/ui/sonner"
 import { AuthTokenProvider } from "@/hooks/use-auth-token"
+import { SearchStreamProvider } from "@/contexts/search-stream"
 
 // Layouts
 import { PublicLayout } from "@/components/layout/public-layout"
@@ -78,7 +79,9 @@ function App() {
         <Route
           element={
             <ProtectedRoute>
-              <NewAppLayout />
+              <SearchStreamProvider>
+                <NewAppLayout />
+              </SearchStreamProvider>
             </ProtectedRoute>
           }
         >

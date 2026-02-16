@@ -302,7 +302,7 @@ Remember to cite your sources (document name and page number) when using informa
         """
         # Retrieve relevant chunks (hybrid if db provided, vector-only otherwise)
         chunks = []
-        if collection_ids:
+        if collection_ids is not None and len(collection_ids) > 0:
             chunks = await self.retrieval.retrieve(
                 query=message,
                 tenant_id=tenant_id,
@@ -447,7 +447,7 @@ Remember to cite your sources (document name and page number) when using informa
         """
         # Retrieve relevant chunks (hybrid if db provided, vector-only otherwise)
         chunks = []
-        if collection_ids:
+        if collection_ids is not None and len(collection_ids) > 0:
             chunks = await self.retrieval.retrieve(
                 query=message,
                 tenant_id=tenant_id,

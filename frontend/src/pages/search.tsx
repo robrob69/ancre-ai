@@ -16,6 +16,8 @@ import {
   Clock,
   Mic,
   MicOff,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,9 +25,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { assistantsApi } from "@/api/assistants";
 import { chatApi } from "@/api/chat";
-import type { Assistant, Citation, Message } from "@/types";
+import type { Assistant, Citation } from "@/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useCopilotReadable } from "@copilotkit/react-core";
+import { BlockRenderer } from "@/components/blocks/BlockRenderer";
+import { useSearchStream } from "@/contexts/search-stream";
 
 const suggestions = [
   "Résume le dernier échange avec le client Dupont",
@@ -33,10 +38,6 @@ const suggestions = [
   "Trouve les tarifs actuels",
   "Cherche le contrat de prestation",
 ];
-
-interface LocalMessage extends Message {
-  isStreaming?: boolean;
-}
 
 // ── Speech Recognition types (Web Speech API) ──
 
@@ -88,25 +89,31 @@ function formatRelativeDate(dateStr: string): string {
 export function SearchPage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // ── Stream state from persistent context (survives navigation) ──
+  const {
+    messages,
+    conversationTitle,
+    isSearching,
+    selectedAssistantId,
+    setSelectedAssistantId,
+    sendMessage,
+    loadConversation,
+    resetConversation,
+  } = useSearchStream();
+
+  // ── Local UI state (resets on unmount — that's fine) ──
   const [query, setQuery] = useState("");
-  const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<LocalMessage[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [conversationTitle, setConversationTitle] = useState<string | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
   const [expandedCitations, setExpandedCitations] = useState<Set<string>>(new Set());
   const [isRecording, setIsRecording] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [forceListView, setForceListView] = useState(false);
 
-  const abortRef = useRef<(() => void) | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const conversationIdRef = useRef(conversationId);
-  const isNewConversationRef = useRef(false);
   const initialLoadDone = useRef(false);
-  conversationIdRef.current = conversationId;
 
   // ── Speech Recognition (native Web Speech API) ──
-  // wantsRecording tracks user intent; recognition may fire onend spuriously
   const wantsRecordingRef = useRef(false);
 
   const startRecording = useCallback(() => {
@@ -143,7 +150,6 @@ export function SearchPage() {
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === "aborted") return;
-      // Fatal errors: stop for real
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         console.error("Microphone access denied:", event.error);
         wantsRecordingRef.current = false;
@@ -155,12 +161,10 @@ export function SearchPage() {
     };
 
     recognition.onend = () => {
-      // Auto-restart if user hasn't clicked stop
       if (wantsRecordingRef.current) {
         try {
           recognition.start();
         } catch {
-          // Already started or other error — give up
           wantsRecordingRef.current = false;
           recognitionRef.current = null;
           setIsRecording(false);
@@ -180,7 +184,6 @@ export function SearchPage() {
     wantsRecordingRef.current = false;
     if (recognitionRef.current) {
       recognitionRef.current.stop();
-      // onend will fire and clean up since wantsRecording is false
     }
   }, []);
 
@@ -229,7 +232,7 @@ export function SearchPage() {
     fetchAllConversations();
   }, [fetchAllConversations]);
 
-  // Auto-select first assistant
+  // Auto-select first assistant (only if context doesn't already have one)
   useEffect(() => {
     if (assistants.length === 0) return;
     const paramAssistant = searchParams.get("assistant");
@@ -238,7 +241,7 @@ export function SearchPage() {
     } else if (!selectedAssistantId) {
       setSelectedAssistantId(assistants[0].id);
     }
-  }, [assistants, selectedAssistantId, searchParams]);
+  }, [assistants, selectedAssistantId, searchParams, setSelectedAssistantId]);
 
   // Auto-load conversation from URL param
   useEffect(() => {
@@ -251,29 +254,16 @@ export function SearchPage() {
       !initialLoadDone.current
     ) {
       initialLoadDone.current = true;
-      chatApi.getConversation(paramAssistant, paramConversation).then((history) => {
-        setMessages(
-          history.map((msg) => ({
-            id: msg.id,
-            role: msg.role as "user" | "assistant" | "system",
-            content: msg.content,
-            citations: msg.citations,
-            blocks: msg.blocks,
-            created_at: msg.created_at,
-          }))
-        );
-        setConversationId(paramConversation);
-        conversationIdRef.current = paramConversation;
-        // Find title from conversation list or first user message
-        const firstUser = history.find((m) => m.role === "user");
-        setConversationTitle(firstUser?.content?.slice(0, 60) || "Conversation");
-        setSearchParams({}, { replace: true });
-      }).catch((error) => {
-        console.error("Failed to load conversation from URL:", error);
-        setSearchParams({}, { replace: true });
-      });
+      loadConversation(paramConversation, paramAssistant, "Conversation")
+        .then(() => {
+          setSearchParams({}, { replace: true });
+        })
+        .catch((error) => {
+          console.error("Failed to load conversation from URL:", error);
+          setSearchParams({}, { replace: true });
+        });
     }
-  }, [selectedAssistantId, searchParams, setSearchParams]);
+  }, [selectedAssistantId, searchParams, setSearchParams, loadConversation]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -283,86 +273,17 @@ export function SearchPage() {
   const handleSearch = useCallback(() => {
     if (!query.trim() || !selectedAssistantId) return;
 
-    if (abortRef.current) abortRef.current();
-
-    isNewConversationRef.current = !conversationIdRef.current;
+    // If we're on the list view, the user wants a fresh conversation
+    // (not a follow-up to the previous one still in context).
+    if (forceListView) {
+      resetConversation();
+    }
+    setForceListView(false);
 
     const userText = query.trim();
-
-    // Set title from first message if new conversation
-    if (!conversationIdRef.current) {
-      setConversationTitle(userText.slice(0, 60));
-    }
-
-    const userMsg: LocalMessage = {
-      id: Date.now().toString(),
-      role: "user",
-      content: userText,
-      created_at: new Date().toISOString(),
-    };
-
-    const assistantMessageId = (Date.now() + 1).toString();
-    const assistantMsg: LocalMessage = {
-      id: assistantMessageId,
-      role: "assistant",
-      content: "",
-      isStreaming: true,
-      created_at: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    setIsSearching(true);
     setQuery("");
-
-    abortRef.current = chatApi.stream(
-      selectedAssistantId,
-      {
-        message: userText,
-        conversation_id: conversationIdRef.current || undefined,
-        include_history: !!conversationIdRef.current,
-      },
-      (token) => {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, content: msg.content + token }
-              : msg
-          )
-        );
-      },
-      (response) => {
-        setConversationId(response.conversationId);
-        conversationIdRef.current = response.conversationId;
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, isStreaming: false, citations: response.citations }
-              : msg
-          )
-        );
-        setIsSearching(false);
-        fetchAllConversations();
-      },
-      (error) => {
-        console.error("Search error:", error);
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, content: "Une erreur s'est produite. Réessayez.", isStreaming: false }
-              : msg
-          )
-        );
-        setIsSearching(false);
-      },
-      (newConversationId) => {
-        if (isNewConversationRef.current) {
-          setConversationId(newConversationId);
-          conversationIdRef.current = newConversationId;
-          fetchAllConversations();
-        }
-      }
-    );
-  }, [query, selectedAssistantId, fetchAllConversations]);
+    sendMessage(selectedAssistantId, userText, fetchAllConversations);
+  }, [query, selectedAssistantId, sendMessage, fetchAllConversations, forceListView, resetConversation]);
 
   // Auto-search from ?q= param (e.g. from dashboard prompt)
   const pendingQueryRef = useRef<string | null>(null);
@@ -389,11 +310,10 @@ export function SearchPage() {
   }, [query, selectedAssistantId, handleSearch]);
 
   const handleBackToList = useCallback(() => {
-    if (abortRef.current) abortRef.current();
-    setMessages([]);
-    setConversationId(null);
-    conversationIdRef.current = null;
-    setConversationTitle(null);
+    // Only hide the conversation view — do NOT clear context data.
+    // The stream keeps running in the background so the response is
+    // still available when the user clicks back on the same conversation.
+    setForceListView(true);
     setQuery("");
     setExpandedCitations(new Set());
     initialLoadDone.current = false;
@@ -405,33 +325,23 @@ export function SearchPage() {
   useEffect(() => {
     if ((location.state as { reset?: number })?.reset) {
       handleBackToList();
-      // Clear the state so it doesn't re-trigger
       window.history.replaceState({}, "");
     }
   }, [(location.state as { reset?: number })?.reset]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadConversation = useCallback(async (convId: string, assistantId: string, title: string) => {
+  const handleLoadConversation = useCallback(async (convId: string, assistantId: string, title: string) => {
     try {
-      const history = await chatApi.getConversation(assistantId, convId);
-      setMessages(
-        history.map((msg) => ({
-          id: msg.id,
-          role: msg.role as "user" | "assistant" | "system",
-          content: msg.content,
-          citations: msg.citations,
-          blocks: msg.blocks,
-          created_at: msg.created_at,
-        }))
-      );
-      setSelectedAssistantId(assistantId);
-      setConversationId(convId);
-      conversationIdRef.current = convId;
-      setConversationTitle(title);
+      setForceListView(false);
+      await loadConversation(convId, assistantId, title);
       setExpandedCitations(new Set());
+      // Scroll to bottom instantly after loading (smooth is too slow for full history)
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
     } catch (error) {
       console.error("Failed to load conversation:", error);
     }
-  }, []);
+  }, [loadConversation]);
 
   const toggleCitations = (messageId: string) => {
     setExpandedCitations((prev) => {
@@ -446,7 +356,28 @@ export function SearchPage() {
   };
 
   const selectedAssistant = assistants.find((a: Assistant) => a.id === selectedAssistantId);
-  const hasConversation = messages.length > 0;
+  const hasConversation = messages.length > 0 && !forceListView;
+
+  const handleCopy = useCallback((messageId: string, content: string) => {
+    navigator.clipboard.writeText(content);
+    setCopiedMessageId(messageId);
+    setTimeout(() => setCopiedMessageId(null), 2000);
+  }, []);
+
+  // Expose search context to CopilotKit popup
+  useCopilotReadable({
+    description: "Current search conversation messages",
+    value: messages.length > 0
+      ? messages.map((m) => `${m.role}: ${m.content}`).join("\n")
+      : "No active search conversation",
+  });
+
+  useCopilotReadable({
+    description: "Currently selected assistant for search",
+    value: selectedAssistant
+      ? `Assistant: ${selectedAssistant.name} (model: ${selectedAssistant.model})`
+      : "No assistant selected",
+  });
 
   // Get assistant settings helper
   const getAssistantEmoji = (a: Assistant) => {
@@ -626,7 +557,7 @@ export function SearchPage() {
                     return (
                       <button
                         key={conv.id}
-                        onClick={() => loadConversation(conv.id, conv.assistant.id, conv.title)}
+                        onClick={() => handleLoadConversation(conv.id, conv.assistant.id, conv.title)}
                         className="group flex flex-col text-left p-4 rounded-lg bg-card border border-border hover:shadow-soft hover:border-primary/20 transition-all"
                       >
                         <div className="flex items-start gap-3 mb-3">
@@ -711,6 +642,15 @@ export function SearchPage() {
                       )}
                     </div>
 
+                    {/* Generative UI Blocks */}
+                    {message.blocks && message.blocks.length > 0 && (
+                      <div className="mt-3 space-y-3">
+                        {message.blocks.map((block) => (
+                          <BlockRenderer key={block.id} block={block} />
+                        ))}
+                      </div>
+                    )}
+
                     {/* Citations */}
                     {message.citations && message.citations.length > 0 && (
                       <div className="mt-2">
@@ -750,6 +690,22 @@ export function SearchPage() {
                         )}
                       </div>
                     )}
+                  </div>
+
+                  {/* Copy button */}
+                  <div className="flex shrink-0 items-start gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(message.id, message.content)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title="Copier"
+                    >
+                      {copiedMessageId === message.id ? (
+                        <Check className="h-3.5 w-3.5 text-green-500" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </button>
                   </div>
                 </div>
               ))}
