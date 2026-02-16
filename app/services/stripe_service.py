@@ -91,6 +91,53 @@ class StripeService:
 
         return session.url
 
+    async def create_trial_checkout_session(
+        self,
+        db: AsyncSession,
+        user: User,
+        success_url: str,
+        cancel_url: str,
+        trial_days: int = 7,
+    ) -> str:
+        """Create a Stripe Checkout session with a trial period.
+
+        Args:
+            db: Database session
+            user: User to create session for
+            success_url: URL to redirect to on success
+            cancel_url: URL to redirect to on cancel
+            trial_days: Number of trial days (default 7)
+
+        Returns:
+            Checkout session URL
+        """
+        customer_id = await self.create_customer(db, user)
+
+        session = stripe.checkout.Session.create(
+            customer=customer_id,
+            mode="subscription",
+            line_items=[
+                {
+                    "price": self.settings.stripe_pro_price_id,
+                    "quantity": 1,
+                }
+            ],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "user_id": str(user.id),
+            },
+            subscription_data={
+                "trial_period_days": trial_days,
+                "metadata": {
+                    "user_id": str(user.id),
+                },
+            },
+            allow_promotion_codes=True,
+        )
+
+        return session.url
+
     async def create_portal_session(
         self,
         db: AsyncSession,

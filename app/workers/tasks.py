@@ -23,6 +23,8 @@ from app.services.mail.factory import get_mail_provider
 from app.services.mail.parse import parse_gmail_message, parse_graph_message
 from app.integrations.nango.client import nango_client
 from app.services.storage import storage_service
+from app.services.web_crawler import crawl_url
+from app.models.web_source import WebSource
 from app.workers.settings import redis_settings
 
 settings = get_settings()
@@ -201,6 +203,171 @@ async def process_document(ctx: dict, document_id: str) -> dict:
     finally:
         await db.close()
 
+
+
+# ── Web crawl tasks ────────────────────────────────────────────────
+
+
+async def crawl_website(ctx: dict, web_source_id: str) -> dict:
+    """Crawl a web page, chunk, embed and index its content.
+
+    Creates a Document to hold the crawled content, then uses the same
+    chunking/embedding/indexing pipeline as uploaded files.
+
+    Args:
+        ctx: Arq context
+        web_source_id: UUID of the WebSource to process
+
+    Returns:
+        Dict with processing results
+    """
+    import hashlib
+    from uuid import uuid4
+
+    ws_uuid = UUID(web_source_id)
+    db = await get_db()
+
+    try:
+        result = await db.execute(
+            select(WebSource).where(WebSource.id == ws_uuid)
+        )
+        ws = result.scalar_one_or_none()
+        if not ws:
+            logger.error(f"WebSource {web_source_id} not found")
+            return {"error": "WebSource not found"}
+
+        ws.status = "crawling"
+        await db.commit()
+
+        logger.info(f"Crawling web source {web_source_id}: {ws.url}")
+
+        # 1. Fetch and parse the web page
+        crawl_result = await crawl_url(ws.url)
+        ws.title = crawl_result.title
+
+        # 2. Create a Document entry for the crawled content
+        content_bytes = crawl_result.text.encode("utf-8")
+        content_hash = hashlib.sha256(content_bytes).hexdigest()
+
+        document = Document(
+            id=uuid4(),
+            collection_id=ws.collection_id,
+            filename=crawl_result.title or ws.url,
+            content_type="text/html",
+            s3_key=f"web_sources/{ws.tenant_id}/{ws.id}",
+            content_hash=content_hash,
+            file_size=len(content_bytes),
+            status=DocumentStatus.PROCESSING.value,
+            page_count=1,
+            doc_metadata={"source_url": ws.url, "web_source_id": str(ws.id)},
+        )
+        db.add(document)
+        await db.flush()
+
+        # 3. Create ParsedDocument and chunk
+        from app.core.parsing import ParsedDocument, ParsedPage
+
+        parsed = ParsedDocument(
+            pages=[ParsedPage(page_number=1, content=crawl_result.text)],
+            total_pages=1,
+            metadata={"title": crawl_result.title, "url": ws.url},
+            parser_used="web_crawler",
+        )
+
+        chunks = chunk_document(parsed)
+        document.chunk_count = len(chunks)
+
+        if not chunks:
+            document.status = DocumentStatus.READY.value
+            document.processed_at = datetime.now(timezone.utc)
+            ws.status = "ready"
+            ws.last_crawled_at = datetime.now(timezone.utc)
+            await db.commit()
+            return {"message": "No content to index", "chunks": 0}
+
+        # 4. Embed
+        chunk_texts = [c.content for c in chunks]
+        embeddings, tokens_used = await embedding_service.embed_texts(chunk_texts)
+        document.tokens_used = tokens_used
+
+        # 5. Index in PG + Qdrant
+        db_chunks = []
+        vector_chunks = []
+
+        for chunk, embedding in zip(chunks, embeddings):
+            db_chunk = Chunk(
+                document_id=document.id,
+                tenant_id=ws.tenant_id,
+                collection_id=ws.collection_id,
+                chunk_index=chunk.chunk_index,
+                content=chunk.content,
+                content_hash=chunk.content_hash,
+                token_count=chunk.token_count,
+                content_tsv=sa_func.to_tsvector(settings.postgres_fts_config, chunk.content),
+                page_number=1,
+                start_offset=chunk.start_offset,
+                end_offset=chunk.end_offset,
+                section_title=crawl_result.title,
+            )
+            db.add(db_chunk)
+            db_chunks.append(db_chunk)
+
+            vector_chunks.append({
+                "id": str(db_chunk.id),
+                "vector": embedding,
+                "payload": {
+                    "tenant_id": str(ws.tenant_id),
+                    "collection_id": str(ws.collection_id),
+                    "document_id": str(document.id),
+                    "document_filename": crawl_result.title or ws.url,
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "page_number": 1,
+                    "section_title": crawl_result.title,
+                    "source_url": ws.url,
+                },
+            })
+
+        await db.flush()
+
+        for db_chunk, vec_chunk in zip(db_chunks, vector_chunks):
+            db_chunk.qdrant_id = vec_chunk["id"]
+            vec_chunk["id"] = str(db_chunk.id)
+
+        await vector_store.ensure_collection()
+        await vector_store.upsert_chunks(vector_chunks)
+
+        # 6. Update statuses
+        document.status = DocumentStatus.READY.value
+        document.processed_at = datetime.now(timezone.utc)
+        ws.status = "ready"
+        ws.last_crawled_at = datetime.now(timezone.utc)
+        ws.error_message = None
+        await db.commit()
+
+        logger.info(
+            f"WebSource {web_source_id} crawled: {len(chunks)} chunks, "
+            f"{tokens_used} tokens"
+        )
+        return {
+            "web_source_id": web_source_id,
+            "url": ws.url,
+            "chunks": len(chunks),
+            "tokens_used": tokens_used,
+        }
+
+    except Exception as e:
+        logger.exception(f"Error crawling web source {web_source_id}")
+        try:
+            ws.status = "failed"
+            ws.error_message = str(e)[:2000]
+            await db.commit()
+        except Exception:
+            pass
+        return {"error": str(e)}
+
+    finally:
+        await db.close()
 
 
 # ── Mail tasks ──────────────────────────────────────────────────────
@@ -596,7 +763,7 @@ async def shutdown(ctx: dict) -> None:
 class WorkerSettings:
     """Arq worker settings."""
 
-    functions = [process_document, send_email, sync_mail_account, sync_thread]
+    functions = [process_document, crawl_website, send_email, sync_mail_account, sync_thread]
     cron_jobs = [
         cron(
             sync_all_mail_accounts,

@@ -15,6 +15,7 @@ from app.integrations.nango.models import NangoConnection, assistant_integration
 from app.models.workspace_document import WorkspaceDocument, WorkspaceDocStatus
 from app.models.document_template import DocumentTemplate
 from app.models.mail import MailAccount, MailMessage, MailSyncState, MailSendRequest
+from app.models.web_source import WebSource
 
 __all__ = [
     "Tenant",
@@ -40,4 +41,5 @@ __all__ = [
     "MailMessage",
     "MailSyncState",
     "MailSendRequest",
+    "WebSource",
 ]

@@ -12,6 +12,7 @@ import {
   CreditCard,
   Bot,
   Loader2,
+  LogOut,
   Plus,
   ChevronDown,
   ChevronUp,
@@ -19,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AnchorLogo } from "@/components/ui/anchor-logo";
+import { useClerk } from "@clerk/clerk-react";
 import { assistantsApi } from "@/api/assistants";
 import { billingApi } from "@/api/billing";
 import { AssistantModal } from "@/components/assistants/assistant-modal";
@@ -40,6 +42,7 @@ const PLAN_LIMITS = { free: 1, pro: 3 };
 
 export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
   const location = useLocation();
+  const { signOut } = useClerk();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [assistantsExpanded, setAssistantsExpanded] = useState(true);
 
@@ -242,6 +245,13 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
             <Settings className="h-4 w-4 shrink-0" />
             {!collapsed && <span>Réglages</span>}
           </Link>
+          <button
+            onClick={() => signOut({ redirectUrl: "/" })}
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-destructive transition-colors w-full"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>Déconnexion</span>}
+          </button>
           <Button
             variant="ghost"
             size="icon"

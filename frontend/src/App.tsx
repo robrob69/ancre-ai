@@ -25,6 +25,7 @@ import { AssistantPage } from "@/pages/assistant-page"
 import { EmailComposer } from "@/pages/email-composer"
 import { DocumentWorkspace } from "@/pages/document-workspace"
 import { SearchPage } from "@/pages/search"
+import { OnboardingPage } from "@/pages/onboarding"
 
 function App() {
   return (
@@ -62,6 +63,16 @@ function App() {
             }
           />
         </Route>
+
+        {/* Onboarding — full screen, no sidebar */}
+        <Route
+          path="/app/onboarding"
+          element={
+            <ProtectedRoute skipOnboardingCheck>
+              <OnboardingPage />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Protected routes with new sidebar layout */}
         <Route
