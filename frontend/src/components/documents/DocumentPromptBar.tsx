@@ -366,9 +366,11 @@ export function DocumentPromptBar({
       // navigates away quickly.
       const latestModel = useDocumentStore.getState().docModel
       if (latestModel) {
-        workspaceDocumentsApi
-          .patchContent(docId, latestModel)
-          .catch((err) => console.error("[doc-ai] Failed to persist generated content:", err))
+        try {
+          await workspaceDocumentsApi.patchContent(docId, latestModel)
+        } catch (err) {
+          console.error("[doc-ai] Failed to persist generated content:", err)
+        }
       }
 
       setAiMessage(responseMsg || "Contenu genere avec succes.")

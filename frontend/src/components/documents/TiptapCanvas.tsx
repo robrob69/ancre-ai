@@ -2,6 +2,7 @@ import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import { useEffect } from "react"
+import { normalizeProseMirror } from "@/lib/prosemirror"
 import { Button } from "@/components/ui/button"
 import {
   Bold,
@@ -29,12 +30,13 @@ export function TiptapCanvas({
   editable = true,
   placeholder = "Commencez a ecrire...",
 }: TiptapCanvasProps) {
+  const normalizedContent = normalizeProseMirror(content)
   const editor = useEditor({
     extensions: [
       StarterKit,
       Placeholder.configure({ placeholder }),
     ],
-    content: content as Record<string, unknown>,
+    content: normalizedContent as Record<string, unknown>,
     editable,
     onUpdate: ({ editor }) => {
       onChange(editor.getJSON() as Record<string, unknown>)
@@ -44,10 +46,11 @@ export function TiptapCanvas({
   // Sync external content changes (e.g., from AI patches)
   useEffect(() => {
     if (editor && content) {
+      const normalized = normalizeProseMirror(content)
       const currentJSON = JSON.stringify(editor.getJSON())
-      const newJSON = JSON.stringify(content)
+      const newJSON = JSON.stringify(normalized)
       if (currentJSON !== newJSON) {
-        editor.commands.setContent(content as Record<string, unknown>)
+        editor.commands.setContent(normalized as Record<string, unknown>)
       }
     }
   }, [content]) // eslint-disable-line react-hooks/exhaustive-deps

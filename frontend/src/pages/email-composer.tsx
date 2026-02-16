@@ -106,6 +106,7 @@ export const EmailComposer = () => {
   const abortGenerationRef = useRef<(() => void) | null>(null);
   const dictationTargetRef = useRef<React.Dispatch<React.SetStateAction<string>>>(setComposeBody);
   const sendPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finalizePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Queries ──
 
@@ -181,10 +182,11 @@ export const EmailComposer = () => {
     }
   }, [location.state]);
 
-  // ── Send polling cleanup ──
+  // ── Polling cleanup on unmount ──
   useEffect(() => {
     return () => {
       if (sendPollRef.current) clearInterval(sendPollRef.current);
+      if (finalizePollRef.current) clearInterval(finalizePollRef.current);
     };
   }, []);
 
@@ -737,12 +739,15 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                   try {
                     const res = await mailApi.connect("gmail");
                     window.open(res.connect_url, "_blank", "width=600,height=700");
+                    // Clear any previous finalize poll
+                    if (finalizePollRef.current) clearInterval(finalizePollRef.current);
                     // After popup closes, finalize
                     const checkInterval = setInterval(async () => {
                       try {
                         const account = await mailApi.finalize(res.account_id);
                         if (account.status === "connected") {
                           clearInterval(checkInterval);
+                          finalizePollRef.current = null;
                           queryClient.invalidateQueries({ queryKey: ["mail-accounts"] });
                           setSelectedAccountId(account.id);
                         }
@@ -750,7 +755,8 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                         // Keep polling
                       }
                     }, 2000);
-                    setTimeout(() => clearInterval(checkInterval), 60000);
+                    finalizePollRef.current = checkInterval;
+                    setTimeout(() => { clearInterval(checkInterval); finalizePollRef.current = null; }, 60000);
                   } catch (e) {
                     console.error("Gmail connect error:", e);
                   }
@@ -767,11 +773,13 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                   try {
                     const res = await mailApi.connect("microsoft");
                     window.open(res.connect_url, "_blank", "width=600,height=700");
+                    if (finalizePollRef.current) clearInterval(finalizePollRef.current);
                     const checkInterval = setInterval(async () => {
                       try {
                         const account = await mailApi.finalize(res.account_id);
                         if (account.status === "connected") {
                           clearInterval(checkInterval);
+                          finalizePollRef.current = null;
                           queryClient.invalidateQueries({ queryKey: ["mail-accounts"] });
                           setSelectedAccountId(account.id);
                         }
@@ -779,7 +787,8 @@ Rédige UNIQUEMENT le corps de l'email. Commence directement par la formule de s
                         // Keep polling
                       }
                     }, 2000);
-                    setTimeout(() => clearInterval(checkInterval), 60000);
+                    finalizePollRef.current = checkInterval;
+                    setTimeout(() => { clearInterval(checkInterval); finalizePollRef.current = null; }, 60000);
                   } catch (e) {
                     console.error("Outlook connect error:", e);
                   }

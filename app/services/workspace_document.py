@@ -391,6 +391,7 @@ INSTRUCTIONS :
 - Génère le contenu sous forme de blocs JSON compatibles avec le format DocModel.
 - Chaque bloc a un "type" parmi : rich_text, line_items, clause, terms, signature.
 - Pour les blocs rich_text/clause/terms, le "content" est du JSON ProseMirror (Tiptap).
+  IMPORTANT : utilise les noms de nœuds Tiptap en camelCase : "bulletList", "orderedList", "listItem", "codeBlock", "hardBreak", "horizontalRule" (PAS "bullet_list", "list_item", etc.).
 - Pour les blocs line_items, fournis des "items" structurés.
 - Cite tes sources quand tu utilises le contexte.
 - Réponds UNIQUEMENT avec un JSON valide, sans texte autour.
@@ -517,6 +518,7 @@ INSTRUCTIONS :
 - Réécris le contenu du bloc selon l'instruction de l'utilisateur.
 - Conserve le même type de bloc et le même id.
 - Pour rich_text/clause/terms, le "content" est du JSON ProseMirror (Tiptap).
+  IMPORTANT : utilise les noms de nœuds Tiptap en camelCase : "bulletList", "orderedList", "listItem", "codeBlock", "hardBreak", "horizontalRule" (PAS "bullet_list", "list_item", etc.).
 - Réponds UNIQUEMENT avec un JSON valide.
 
 FORMAT DE RÉPONSE (JSON) :

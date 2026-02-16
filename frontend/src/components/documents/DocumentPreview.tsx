@@ -6,6 +6,7 @@
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import type { DocBlock, DocModel } from "@/types"
+import { normalizeProseMirror } from "@/lib/prosemirror"
 
 interface DocumentPreviewProps {
   title: string
@@ -16,9 +17,10 @@ interface DocumentPreviewProps {
 // ── Read-only Tiptap renderer ──
 
 function ReadOnlyRichText({ content }: { content: Record<string, unknown> }) {
+  const normalized = normalizeProseMirror(content)
   const editor = useEditor({
     extensions: [StarterKit],
-    content: content as Record<string, unknown>,
+    content: normalized as Record<string, unknown>,
     editable: false,
   })
 

@@ -204,10 +204,22 @@ export function DocumentEditorPage() {
     }
   }, [id, toast])
 
+  // Flush current content to the backend before status changes / navigation
+  const flushContent = useCallback(async () => {
+    if (!id || !docModel || !docModel.blocks.length) return
+    try {
+      await workspaceDocumentsApi.patchContent(id, docModel)
+    } catch (err) {
+      console.error("[doc-editor] Failed to flush content:", err)
+    }
+  }, [id, docModel])
+
   // Change document status
   const handleStatusChange = useCallback(async (newStatus: string) => {
     if (!id) return
     try {
+      // Persist current content before changing status to avoid data loss
+      await flushContent()
       await workspaceDocumentsApi.update(id, { status: newStatus })
       queryClient.invalidateQueries({ queryKey: ["workspace-document", id] })
       queryClient.invalidateQueries({ queryKey: ["workspace-documents"] })
@@ -222,13 +234,15 @@ export function DocumentEditorPage() {
         variant: "destructive",
       })
     }
-  }, [id, queryClient, toast])
+  }, [id, queryClient, toast, flushContent])
 
   // Send document to email composer
   const handleSendToEmail = useCallback(async () => {
     if (!id) return
     setIsExporting(true)
     try {
+      // Persist current content before exporting to avoid empty PDFs
+      await flushContent()
       const { url } = await workspaceDocumentsApi.exportPdf(id)
       // Mark as sent
       await workspaceDocumentsApi.update(id, { status: "sent" })
@@ -253,7 +267,7 @@ export function DocumentEditorPage() {
     } finally {
       setIsExporting(false)
     }
-  }, [id, title, navigate, queryClient, toast])
+  }, [id, title, navigate, queryClient, toast, flushContent])
 
   // Get assistant collection IDs for CopilotKit
   const collectionIds: string[] = [] // Will be populated from assistant if linked
