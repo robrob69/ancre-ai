@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search,
@@ -86,6 +86,7 @@ function formatRelativeDate(dateStr: string): string {
 // ── Main component ──
 
 export function SearchPage() {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
@@ -400,6 +401,15 @@ export function SearchPage() {
     fetchAllConversations();
   }, [setSearchParams, fetchAllConversations]);
 
+  // Reset to list view when sidebar "Recherche" is clicked again
+  useEffect(() => {
+    if ((location.state as { reset?: number })?.reset) {
+      handleBackToList();
+      // Clear the state so it doesn't re-trigger
+      window.history.replaceState({}, "");
+    }
+  }, [(location.state as { reset?: number })?.reset]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadConversation = useCallback(async (convId: string, assistantId: string, title: string) => {
     try {
       const history = await chatApi.getConversation(assistantId, convId);
@@ -633,15 +643,15 @@ export function SearchPage() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 mt-auto">
-                          <span className="text-[11px] text-muted-foreground">
+                        <div className="flex items-center gap-1.5 mt-auto min-w-0">
+                          <span className="text-[11px] text-muted-foreground truncate">
                             {conv.assistant.name}
                           </span>
-                          <span className="text-muted-foreground/30">·</span>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                          <span className="text-muted-foreground/30 shrink-0">·</span>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 whitespace-nowrap">
                             {conv.message_count} msg
                           </Badge>
-                          <span className="ml-auto text-[11px] text-muted-foreground">
+                          <span className="ml-auto text-[11px] text-muted-foreground shrink-0 whitespace-nowrap">
                             {formatRelativeDate(conv.last_message_at)}
                           </span>
                         </div>

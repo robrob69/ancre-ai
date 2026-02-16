@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LayoutDashboard,
   FileText,
   Mail,
   Search,
@@ -27,10 +26,9 @@ import { AssistantModal } from "@/components/assistants/assistant-modal";
 import type { Assistant } from "@/types";
 
 const mainNav = [
-  { label: "Accueil", icon: LayoutDashboard, path: "/app" },
-  { label: "Documents", icon: FileText, path: "/app/documents" },
-  { label: "Emails", icon: Mail, path: "/app/email" },
   { label: "Recherche", icon: Search, path: "/app/search" },
+  { label: "Emails", icon: Mail, path: "/app/email" },
+  { label: "Documents", icon: FileText, path: "/app/documents" },
 ];
 
 interface AppSidebarProps {
@@ -42,6 +40,7 @@ const PLAN_LIMITS = { free: 1, pro: 3 };
 
 export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { signOut } = useClerk();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [assistantsExpanded, setAssistantsExpanded] = useState(true);
@@ -67,15 +66,20 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         collapsed ? "w-16" : "w-60"
       )}
     >
-      {/* Logo */}
-      <div className="flex items-center h-14 px-4 border-b border-sidebar-border">
-        <AnchorLogo size="sm" />
+      {/* Logo — clickable, navigates to home */}
+      <Link
+        to="/app"
+        className="flex items-center h-14 px-4 border-b border-sidebar-border group"
+      >
+        <div className="transition-transform duration-300 group-hover:rotate-[-12deg]">
+          <AnchorLogo size="sm" />
+        </div>
         {!collapsed && (
           <span className="ml-2.5 text-sm font-semibold text-sidebar-foreground">
             Ancre
           </span>
         )}
-      </div>
+      </Link>
 
       {/* Main nav */}
       <nav className="py-3 px-2 space-y-0.5">
@@ -90,6 +94,12 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
             <Link
               key={item.path}
               to={item.path}
+              onClick={(e) => {
+                if (active) {
+                  e.preventDefault();
+                  navigate(item.path, { state: { reset: Date.now() } });
+                }
+              }}
               className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
                 active
