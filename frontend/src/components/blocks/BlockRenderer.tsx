@@ -6,6 +6,9 @@ import { DataTable } from "./DataTable"
 import { Callout } from "./Callout"
 import { ToolCallBlock } from "./ToolCallBlock"
 import { ErrorBlock } from "./ErrorBlock"
+import { CalendarEventCard } from "./calendar/CalendarEventCard"
+import { CalendarEventChoices } from "./calendar/CalendarEventChoices"
+import { CalendarConnectProviderCTA } from "./calendar/CalendarConnectProviderCTA"
 
 const blockComponents = {
   kpi_cards: KpiCards,
@@ -13,6 +16,9 @@ const blockComponents = {
   table: DataTable,
   callout: Callout,
   tool_call: ToolCallBlock,
+  calendar_event_card: CalendarEventCard,
+  calendar_event_choices: CalendarEventChoices,
+  calendar_connect_cta: CalendarConnectProviderCTA,
 } as const
 
 type RenderableBlockType = keyof typeof blockComponents

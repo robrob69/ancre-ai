@@ -14,6 +14,11 @@ from app.schemas.chat import ChatStreamEvent, Citation
 from app.services.retrieval import RetrievalService, RetrievedChunk
 from app.integrations.nango.tools.registry import get_tools_for_provider, find_provider_for_tool
 from app.integrations.nango.tools.executor import execute_integration_tool
+from app.services.chat_tools.calendar_tools import get_calendar_tools, CALENDAR_SYSTEM_PROMPT_ADDITION
+from app.services.chat_tools.calendar_handlers import (
+    is_calendar_tool,
+    execute_calendar_tool,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -148,6 +153,14 @@ _TOOL_NAME_TO_BLOCK_TYPE = {
     "renderCallout": "callout",
 }
 
+# Map calendar tool names → block types for the frontend
+_CALENDAR_TOOL_TO_BLOCK_TYPE = {
+    "calendar_parse_command": None,  # Returns command, not a block
+    "calendar_execute_command": "calendar_event_card",  # Or other calendar blocks
+    "calendar_list_events": "calendar_event_choices",
+    "calendar_find_events": "calendar_event_choices",
+}
+
 BLOCK_INSTRUCTIONS = """
 INSTRUCTIONS POUR LES BLOCS VISUELS :
 Tu disposes de 4 outils pour afficher des blocs structurés dans le chat :
@@ -220,13 +233,19 @@ Remember to cite your sources (document name and page number) when using informa
             prompt = base_prompt
 
         prompt += BLOCK_INSTRUCTIONS
+        prompt += CALENDAR_SYSTEM_PROMPT_ADDITION
         prompt += _build_integration_instructions(integrations or [])
 
         return prompt
 
     def _build_tools_list(self, integrations: list[dict] | None = None) -> list[dict]:
-        """Build the full tools list: block tools + integration tools."""
+        """Build the full tools list: block tools + calendar tools + integration tools."""
         tools = list(BLOCK_TOOLS)
+
+        # Add calendar tools
+        tools.extend(get_calendar_tools())
+
+        # Add integration tools
         if integrations:
             for integration in integrations:
                 provider = integration["provider"]
@@ -234,8 +253,11 @@ Remember to cite your sources (document name and page number) when using informa
         return tools
 
     def _is_block_tool(self, tool_name: str) -> bool:
-        """Check if a tool name is a block (UI) tool vs an integration tool."""
-        return tool_name in _TOOL_NAME_TO_BLOCK_TYPE
+        """Check if a tool name is a block (UI) tool vs an integration/calendar tool."""
+        return (
+            tool_name in _TOOL_NAME_TO_BLOCK_TYPE
+            or tool_name in _CALENDAR_TOOL_TO_BLOCK_TYPE
+        )
 
     def _extract_citations(
         self,
@@ -356,7 +378,7 @@ Remember to cite your sources (document name and page number) when using informa
 
             has_integration_calls = False
             for tc in assistant_msg.tool_calls:
-                if self._is_block_tool(tc.function.name):
+                if tc.function.name in _TOOL_NAME_TO_BLOCK_TYPE:
                     # Block tools: parse as UI blocks, send dummy response
                     block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc.function.name)
                     try:
@@ -372,6 +394,40 @@ Remember to cite your sources (document name and page number) when using informa
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "content": "OK",
+                    })
+                elif is_calendar_tool(tc.function.name):
+                    # Calendar tools: execute and emit calendar blocks
+                    has_integration_calls = True
+                    logger.info("Calling calendar tool: %s", tc.function.name)
+
+                    try:
+                        args = json.loads(tc.function.arguments)
+                    except json.JSONDecodeError:
+                        args = {}
+
+                    result = await execute_calendar_tool(
+                        tool_name=tc.function.name,
+                        arguments=args,
+                        db=db,
+                        current_user={"tenant_id": tenant_id, "user_id": "SYSTEM_USER"},  # TODO: Pass user_id from API layer
+                    )
+
+                    # Emit calendar block
+                    try:
+                        result_data = json.loads(result)
+                        if result_data.get("type") in ["calendar_event_card", "calendar_event_choices", "calendar_connect_cta", "calendar_clarification"]:
+                            all_blocks.append({
+                                "id": str(uuid4()),
+                                "type": result_data["type"],
+                                "payload": result_data,
+                            })
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning("Failed to parse calendar result: %s", e)
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
                     })
                 else:
                     # Integration tool: execute via Nango
@@ -550,7 +606,7 @@ Remember to cite your sources (document name and page number) when using informa
                 })
 
                 for tc_data in tool_calls_acc.values():
-                    if self._is_block_tool(tc_data["name"]):
+                    if tc_data["name"] in _TOOL_NAME_TO_BLOCK_TYPE:
                         # Block/UI tool: emit as block
                         block_type = _TOOL_NAME_TO_BLOCK_TYPE.get(tc_data["name"])
                         try:
@@ -572,6 +628,51 @@ Remember to cite your sources (document name and page number) when using informa
                             "role": "tool",
                             "tool_call_id": tc_data["id"],
                             "content": "OK",
+                        })
+                    elif is_calendar_tool(tc_data["name"]):
+                        # Calendar tools: execute and emit calendar blocks
+                        has_integration_calls = True
+                        logger.info("Calling calendar tool (streaming): %s", tc_data["name"])
+
+                        # Emit tool_call block (in progress)
+                        yield ChatStreamEvent(event="block", data={
+                            "id": str(uuid4()),
+                            "type": "tool_call",
+                            "payload": {
+                                "provider": "calendar",
+                                "tool": tc_data["name"],
+                                "status": "calling",
+                            },
+                        })
+
+                        try:
+                            args = json.loads(tc_data["arguments"])
+                        except json.JSONDecodeError:
+                            args = {}
+
+                        result = await execute_calendar_tool(
+                            tool_name=tc_data["name"],
+                            arguments=args,
+                            db=db,
+                            current_user={"tenant_id": tenant_id, "user_id": "SYSTEM_USER"},  # TODO: Pass user_id from API layer
+                        )
+
+                        # Parse result and emit appropriate block
+                        try:
+                            result_data = json.loads(result)
+                            if result_data.get("type") in ["calendar_event_card", "calendar_event_choices", "calendar_connect_cta", "calendar_clarification"]:
+                                yield ChatStreamEvent(event="block", data={
+                                    "id": str(uuid4()),
+                                    "type": result_data["type"],
+                                    "payload": result_data,
+                                })
+                        except (json.JSONDecodeError, KeyError) as e:
+                            logger.warning("Failed to parse calendar result: %s", e)
+
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc_data["id"],
+                            "content": result,
                         })
                     else:
                         # Integration tool: execute and continue loop

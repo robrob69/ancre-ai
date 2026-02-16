@@ -15,6 +15,7 @@ import {
   Plus,
   ChevronDown,
   ChevronUp,
+  Calendar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const mainNav = [
   { label: "Recherche", icon: Search, path: "/app/search" },
   { label: "Emails", icon: Mail, path: "/app/email" },
   { label: "Documents", icon: FileText, path: "/app/documents" },
+  { label: "Calendrier", icon: Calendar, path: "/app/calendar" },
 ];
 
 interface AppSidebarProps {

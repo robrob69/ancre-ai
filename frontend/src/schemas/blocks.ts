@@ -63,6 +63,51 @@ export const toolCallSchema = z.object({
 export type ToolCallPayload = z.infer<typeof toolCallSchema>
 
 // ---------------------------------------------------------------------------
+// Calendar Blocks
+// ---------------------------------------------------------------------------
+export const calendarEventCardSchema = z.object({
+  event: z.object({
+    id: z.string(),
+    title: z.string(),
+    starts_at: z.string(),
+    ends_at: z.string(),
+    timezone: z.string(),
+    provider: z.enum(["google", "microsoft"]),
+    calendar_id: z.string(),
+    attendees: z.array(z.string()),
+    video_conference_link: z.string().optional(),
+    html_link: z.string().optional(),
+    description: z.string().optional(),
+  }),
+  message: z.string().optional(),
+  operation: z.enum(["create", "update", "delete", "list", "find"]).optional(),
+})
+export type CalendarEventCardPayload = z.infer<typeof calendarEventCardSchema>
+
+export const calendarEventChoicesSchema = z.object({
+  events: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    starts_at: z.string(),
+    ends_at: z.string(),
+    timezone: z.string(),
+    provider: z.enum(["google", "microsoft"]),
+    calendar_id: z.string(),
+    attendees: z.array(z.string()),
+    video_conference_link: z.string().optional(),
+    html_link: z.string().optional(),
+    description: z.string().optional(),
+  })),
+  message: z.string(),
+})
+export type CalendarEventChoicesPayload = z.infer<typeof calendarEventChoicesSchema>
+
+export const calendarConnectCtaSchema = z.object({
+  message: z.string().optional(),
+})
+export type CalendarConnectCtaPayload = z.infer<typeof calendarConnectCtaSchema>
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 export const blockSchemas = {
@@ -71,4 +116,7 @@ export const blockSchemas = {
   table: tableSchema,
   callout: calloutSchema,
   tool_call: toolCallSchema,
+  calendar_event_card: calendarEventCardSchema,
+  calendar_event_choices: calendarEventChoicesSchema,
+  calendar_connect_cta: calendarConnectCtaSchema,
 } as const

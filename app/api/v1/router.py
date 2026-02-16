@@ -9,6 +9,7 @@ from app.api.v1 import dictation
 from app.api.v1 import workspace_documents
 from app.api.v1 import mail
 from app.api.v1 import onboarding
+from app.api.v1 import calendar
 
 api_router = APIRouter()
 
@@ -26,3 +27,4 @@ api_router.include_router(dictation.router, prefix="/dictation", tags=["dictatio
 api_router.include_router(workspace_documents.router, prefix="/workspace-documents", tags=["workspace-documents"])
 api_router.include_router(mail.router, prefix="/mail", tags=["mail"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
+api_router.include_router(calendar.router, prefix="/calendar", tags=["calendar"])
