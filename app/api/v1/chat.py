@@ -1,13 +1,16 @@
 """Chat endpoints with SSE streaming."""
 
+import asyncio
 import json
+import logging
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
+from app.database import async_session_maker
 from app.deps import CurrentUser, DbSession
 from app.models.assistant import Assistant
 from app.models.message import Message, MessageRole
@@ -16,7 +19,11 @@ from app.services.chat import chat_service
 from app.services.usage import usage_service
 from app.services.quota import quota_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Sentinel to signal the SSE consumer that the producer is done
+_STREAM_END = object()
 
 
 async def format_sse(event: str, data: str) -> str:
@@ -28,6 +35,105 @@ async def format_sse(event: str, data: str) -> str:
     lines = data.split("\n")
     data_lines = "\n".join(f"data: {line}" for line in lines)
     return f"event: {event}\n{data_lines}\n\n"
+
+
+async def _run_llm_producer(
+    queue: asyncio.Queue,
+    *,
+    request_message: str,
+    tenant_id: UUID,
+    collection_ids: list[UUID],
+    system_prompt: str | None,
+    history: list[dict],
+    integrations_data: list[dict] | None,
+    assistant_id: UUID,
+    conversation_id: UUID,
+    user_message_id: UUID,
+):
+    """Consume chat_service.chat_stream(), push events to queue, and save to DB.
+
+    Runs as an independent asyncio.Task so that client disconnects (which only
+    tear down the SSE generator) do not prevent the LLM call from completing or
+    the result from being persisted.
+    """
+    full_response = ""
+    citations_for_db: list = []
+    blocks_for_db: list = []
+    tokens_input = 0
+    tokens_output = 0
+
+    try:
+        async with async_session_maker() as retrieval_db:
+            async for event in chat_service.chat_stream(
+                message=request_message,
+                tenant_id=tenant_id,
+                collection_ids=collection_ids,
+                system_prompt=system_prompt,
+                conversation_history=history,
+                integrations=integrations_data,
+                db=retrieval_db,
+            ):
+                if event.event == "token":
+                    full_response += event.data
+                    await queue.put(("token", event.data))
+                elif event.event == "block":
+                    blocks_for_db.append(event.data)
+                    await queue.put(("block", event.data))
+                elif event.event == "citations":
+                    citations_for_db = [
+                        c.model_dump(mode="json") if hasattr(c, "model_dump")
+                        else {k: str(v) if isinstance(v, UUID) else v for k, v in c.items()} if isinstance(c, dict)
+                        else c
+                        for c in event.data
+                    ]
+                    await queue.put(("citations", citations_for_db))
+                elif event.event == "done":
+                    tokens_input = event.data.get("tokens_input", 0)
+                    tokens_output = event.data.get("tokens_output", 0)
+                    await queue.put(("done", event.data))
+                elif event.event == "error":
+                    await queue.put(("error", event.data))
+                else:
+                    await queue.put((event.event, event.data))
+
+    except Exception as e:
+        logger.error("LLM producer error: %s", e)
+        await queue.put(("error", str(e)))
+
+    finally:
+        # Always save assistant message, even if client disconnected
+        if full_response or blocks_for_db:
+            try:
+                async with async_session_maker() as save_db:
+                    await save_db.execute(
+                        update(Message)
+                        .where(Message.id == user_message_id)
+                        .values(tokens_input=tokens_input)
+                    )
+                    assistant_message = Message(
+                        assistant_id=assistant_id,
+                        conversation_id=conversation_id,
+                        role=MessageRole.ASSISTANT.value,
+                        content=full_response,
+                        citations=citations_for_db or None,
+                        blocks=blocks_for_db or None,
+                        tokens_output=tokens_output,
+                    )
+                    save_db.add(assistant_message)
+                    await usage_service.record_chat(
+                        save_db, tenant_id, tokens_input, tokens_output
+                    )
+                    await save_db.commit()
+                    logger.info(
+                        "Saved assistant message for conversation %s (%d chars)",
+                        conversation_id,
+                        len(full_response),
+                    )
+            except Exception as save_err:
+                logger.error("Failed to save assistant message: %s", save_err)
+
+        # Signal the consumer that we are done
+        await queue.put(_STREAM_END)
 
 
 @router.post("/{assistant_id}", response_model=ChatResponse)
@@ -214,7 +320,6 @@ async def chat_stream(
         history = [{"role": m.role, "content": m.content} for m in messages]
 
     # Save user message BEFORE streaming so conversation appears in list immediately
-    from app.database import async_session_maker
     async with async_session_maker() as save_db:
         user_message = Message(
             assistant_id=assistant_id,
@@ -227,83 +332,58 @@ async def chat_stream(
         await save_db.commit()
         user_message_id = user_message.id
 
+    # --- Task + Queue: decouple LLM generation from SSE delivery ---
+    # The producer task runs independently so that client disconnects
+    # (which only tear down the SSE generator) cannot prevent the LLM
+    # call from completing or the result from being saved to DB.
+    queue: asyncio.Queue = asyncio.Queue()
+
+    producer_task = asyncio.create_task(
+        _run_llm_producer(
+            queue,
+            request_message=request.message,
+            tenant_id=tenant_id,
+            collection_ids=collection_ids,
+            system_prompt=assistant.system_prompt,
+            history=history,
+            integrations_data=integrations_data or None,
+            assistant_id=assistant_id,
+            conversation_id=conversation_id,
+            user_message_id=user_message_id,
+        )
+    )
+    # Suppress "Task exception was never retrieved" warnings
+    producer_task.add_done_callback(
+        lambda t: t.exception() if not t.cancelled() else None
+    )
+
     async def event_generator():
-        """Generate SSE events."""
-        full_response = ""
-        citations_for_db = []  # JSON-safe dicts for DB storage
-        blocks_for_db = []  # Generative UI blocks for DB storage
-        tokens_input = 0
-        tokens_output = 0
+        """Read events from the producer queue and yield SSE strings."""
+        yield await format_sse("conversation_id", str(conversation_id))
 
-        try:
-            # Send conversation ID first (conversation now exists in DB)
-            yield await format_sse("conversation_id", str(conversation_id))
+        while True:
+            item = await queue.get()
+            if item is _STREAM_END:
+                break
 
-            # Use a dedicated session for hybrid retrieval (FTS keyword search)
-            async with async_session_maker() as retrieval_db:
-                async for event in chat_service.chat_stream(
-                    message=request.message,
-                    tenant_id=tenant_id,
-                    collection_ids=collection_ids,
-                    system_prompt=assistant.system_prompt,
-                    conversation_history=history,
-                    integrations=integrations_data or None,
-                    db=retrieval_db,
-                ):
-                    if event.event == "token":
-                        full_response += event.data
-                        yield await format_sse("token", event.data)
-                    elif event.event == "block":
-                        blocks_for_db.append(event.data)
-                        yield await format_sse("block", json.dumps(event.data))
-                    elif event.event == "citations":
-                        # Serialize to JSON-safe dicts (convert UUIDs to strings)
-                        citations_for_db = [
-                            c.model_dump(mode="json") if hasattr(c, 'model_dump')
-                            else {k: str(v) if isinstance(v, UUID) else v for k, v in c.items()} if isinstance(c, dict)
-                            else c
-                            for c in event.data
-                        ]
-                        yield await format_sse("citations", json.dumps(citations_for_db))
-                    elif event.event == "done":
-                        tokens_input = event.data.get("tokens_input", 0)
-                        tokens_output = event.data.get("tokens_output", 0)
-                        yield await format_sse("done", json.dumps(event.data))
-                    elif event.event == "error":
-                        yield await format_sse("error", event.data)
-                    else:
-                        yield await format_sse(event.event, json.dumps(event.data) if isinstance(event.data, dict) else str(event.data))
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Streaming error: {e}")
-            yield await format_sse("error", str(e))
-        finally:
-            # Always save assistant message after streaming, even on error
-            if full_response or blocks_for_db:
-                try:
-                    async with async_session_maker() as save_db:
-                        from sqlalchemy import update
-                        await save_db.execute(
-                            update(Message)
-                            .where(Message.id == user_message_id)
-                            .values(tokens_input=tokens_input)
-                        )
+            event_type, event_data = item
 
-                        assistant_message = Message(
-                            assistant_id=assistant_id,
-                            conversation_id=conversation_id,
-                            role=MessageRole.ASSISTANT.value,
-                            content=full_response,
-                            citations=citations_for_db or None,
-                            blocks=blocks_for_db or None,
-                            tokens_output=tokens_output,
-                        )
-                        save_db.add(assistant_message)
-                        await save_db.commit()
-                except Exception as save_err:
-                    import logging
-                    logging.getLogger(__name__).error(f"Failed to save assistant message: {save_err}")
-    
+            if event_type == "token":
+                yield await format_sse("token", event_data)
+            elif event_type == "block":
+                yield await format_sse("block", json.dumps(event_data))
+            elif event_type == "citations":
+                yield await format_sse("citations", json.dumps(event_data))
+            elif event_type == "done":
+                yield await format_sse("done", json.dumps(event_data))
+            elif event_type == "error":
+                yield await format_sse("error", event_data)
+            else:
+                yield await format_sse(
+                    event_type,
+                    json.dumps(event_data) if isinstance(event_data, dict) else str(event_data),
+                )
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",

@@ -14,8 +14,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Table, Text, func
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -58,8 +58,14 @@ class NangoConnection(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="pending", comment="pending | connected | error"
     )
-    metadata_json: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Optional JSON metadata"
+    connection_metadata: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Optional JSON metadata"
+    )
+    user_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
